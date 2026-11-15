@@ -1,0 +1,338 @@
+openapi: 3.1.0
+info:
+  title: Cinema City Syria — Booking API
+  version: 0.1.0
+  description: |
+    HTTP contract between the web client and the booking server.
+
+    Conventions
+    - All bodies are JSON. Field shapes are defined once in `shared/types.ts`; this document
+      names them and pins the behaviour of each endpoint.
+    - Instants are ISO-8601 UTC strings. Calendar days are `YYYY-MM-DD` in the cinema's time
+      zone (Asia/Damascus, UTC+3 all year).
+    - Customers are anonymous. Each browser generates a session id (16–64 chars of
+      `[A-Za-z0-9_-]`) and sends it in the `X-Session-Id` header. The session owns its seat
+      holds and can list/cancel the bookings it created.
+    - Staff endpoints under `/api/admin` require the `X-Admin-Pin` header (demo-grade auth).
+    - Every error response is `{ "error": { "code", "message", "details"? } }`. Clients switch
+      on `code` (see `ERROR_CODES` in `shared/types.ts`); `message` is English text for logs.
+    - Prices are whole (new) Syrian pounds, computed by the server only. Totals sent by a client are ignored.
+    - Error `details`: VALIDATION → `[{ path, message }]` (or `{ field: "customer.phone" }` for a bad
+      phone number); SEAT_UNAVAILABLE / SEAT_UNKNOWN → `{ seatIds }`; SEAT_LIMIT → `{ max }`;
+      RATE_LIMITED → `{ retryAfterSeconds }` plus a `Retry-After` header.
+    - Rate limits: 40 mutating requests per 10 s per session → 429 RATE_LIMITED. Ten wrong staff
+      PINs within a minute lock admin access from that address for the rest of the minute.
+
+    Seat lifecycle
+      available ──hold──▶ held (10 min, sliding) ──book──▶ booked
+           ▲                 │ release / expiry              │ cancel
+           └─────────────────┴───────────────────────────────┘
+    A seat that is held by another session or booked can never be held or booked again until it is freed.
+servers:
+  - url: http://localhost:4000
+    description: Local server (the Vite dev server proxies /api to it)
+tags:
+  - name: Catalogue
+  - name: Seats
+  - name: Bookings
+  - name: Admin
+paths:
+  /api/health:
+    get:
+      tags: [Catalogue]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: '`{ ok: true, serverTime }`'
+
+  /api/movies:
+    get:
+      tags: [Catalogue]
+      summary: List films
+      description: |
+        Now-showing films first (featured first, then newest release), then coming-soon films by release date.
+        Each film carries `nextShowtimes`: up to 4 showtimes that have not started yet, soonest first
+        (sold-out ones included, flagged by `status`). Coming-soon films have none.
+      responses:
+        '200':
+          description: '`{ movies: MovieWithShowtimes[], serverTime }`'
+
+  /api/movies/{movieId}:
+    get:
+      tags: [Catalogue]
+      summary: One film with its 7-day schedule
+      description: |
+        `days` always has exactly 7 entries — today (cinema time) and the next 6 days — each with that
+        day's showtimes in start order (possibly empty). Showtimes that have already started are
+        included with `status: "closed"` so the UI can show them disabled.
+      parameters:
+        - { name: movieId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ movie: Movie, days: ScheduleDay[], serverTime }`'
+        '404':
+          description: NOT_FOUND
+
+  /api/halls:
+    get:
+      tags: [Catalogue]
+      summary: List halls
+      responses:
+        '200':
+          description: '`{ halls: HallSummary[] }`'
+
+  /api/showtimes/{showtimeId}:
+    get:
+      tags: [Seats]
+      summary: Showtime with film, hall layout and current seat map
+      description: |
+        Returns `ShowtimeDetail`. `seats` lists only unavailable seats: `booked`, `held` (by another
+        session) or `mine` (held by the caller, when `X-Session-Id` is sent). Expired holds are never
+        reported. `holdExpiresAt` is the caller's hold expiry or null.
+      parameters:
+        - { name: showtimeId, in: path, required: true, schema: { type: string } }
+        - { name: X-Session-Id, in: header, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: ShowtimeDetail
+        '404':
+          description: NOT_FOUND
+
+  /api/showtimes/{showtimeId}/events:
+    get:
+      tags: [Seats]
+      summary: Live seat stream (Server-Sent Events)
+      description: |
+        `text/event-stream`. Each message's `data:` is one JSON `SeatStreamEvent`:
+        - `snapshot` — sent immediately on connect (and after reconnects): the full seat map as seen by this session.
+        - `seats` — one or more seats changed state. `state` is personalised: the holder sees `mine`, everyone else `held`.
+        - `reset` — demo data was reset; clients should refetch the showtime.
+        A comment line (`: ping`) is sent every 15 s to keep proxies from closing the stream.
+        The session id is passed as a query parameter because EventSource cannot set headers.
+      parameters:
+        - { name: showtimeId, in: path, required: true, schema: { type: string } }
+        - { name: session, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Event stream
+        '404':
+          description: NOT_FOUND (plain JSON error, not a stream)
+
+  /api/showtimes/{showtimeId}/holds:
+    post:
+      tags: [Seats]
+      summary: Hold one seat for the caller
+      description: |
+        Body `{ seatId }`. On success the seat is reserved for this session and ALL of the session's
+        holds on this showtime get a fresh expiry of now + hold window (sliding). Holding a seat the
+        caller already holds succeeds and refreshes the expiry (idempotent).
+        Returns `HoldResult`.
+      parameters:
+        - { name: showtimeId, in: path, required: true, schema: { type: string } }
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: HoldResult
+        '400':
+          description: VALIDATION (malformed body) or SESSION_REQUIRED (missing/invalid session header)
+        '404':
+          description: NOT_FOUND (no such showtime) or SEAT_UNKNOWN (no such seat in this hall)
+        '409':
+          description: |
+            SEAT_UNAVAILABLE (booked, or held by another session), SEAT_LIMIT (caller already holds
+            the maximum of 8 seats), or SHOWTIME_CLOSED (the show has started).
+    delete:
+      tags: [Seats]
+      summary: Release every seat the caller holds on this showtime
+      parameters:
+        - { name: showtimeId, in: path, required: true, schema: { type: string } }
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ReleaseResult (`seatIds` is empty afterwards, `holdExpiresAt` null)
+        '400':
+          description: SESSION_REQUIRED
+
+  /api/showtimes/{showtimeId}/holds/{seatId}:
+    delete:
+      tags: [Seats]
+      summary: Release one seat the caller holds
+      description: Idempotent — releasing a seat the caller does not hold is a no-op that still returns 200.
+      parameters:
+        - { name: showtimeId, in: path, required: true, schema: { type: string } }
+        - { name: seatId, in: path, required: true, schema: { type: string } }
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: ReleaseResult — the seats the caller still holds and their expiry (null if none)
+        '400':
+          description: SESSION_REQUIRED
+
+  /api/bookings:
+    post:
+      tags: [Bookings]
+      summary: Confirm a booking
+      description: |
+        Body `CreateBookingRequest`. Atomic: either every seat is booked or none is.
+        Each requested seat must be free or held by the caller; seats held by another session or
+        already booked fail the whole request with SEAT_UNAVAILABLE and `details.seatIds`.
+        - `customer.name`: 2–60 characters after trimming.
+        - `customer.phone`: a Syrian mobile number in any common form; stored as `+9639XXXXXXXX`.
+        - `seatIds`: 1–8 distinct seats of the showtime's hall.
+        - `paymentMethod`: `box_office` → payment `due`; `online_demo` → payment `paid` (simulated).
+        The caller's holds on the booked seats are consumed. Returns 201 `{ booking }`.
+      parameters:
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '201':
+          description: '`{ booking: Booking }`'
+        '400':
+          description: VALIDATION or SESSION_REQUIRED
+        '404':
+          description: NOT_FOUND (showtime) or SEAT_UNKNOWN
+        '409':
+          description: SEAT_UNAVAILABLE, SEAT_LIMIT or SHOWTIME_CLOSED
+    get:
+      tags: [Bookings]
+      summary: Bookings created by the caller's session
+      description: Newest first. Includes cancelled bookings.
+      parameters:
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ bookings: Booking[] }`'
+        '400':
+          description: SESSION_REQUIRED
+
+  /api/bookings/{code}:
+    get:
+      tags: [Bookings]
+      summary: Look up a booking by its reference
+      description: The reference is case-insensitive and may be given with or without the `CC-` prefix.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ booking: Booking }`'
+        '404':
+          description: NOT_FOUND
+
+  /api/bookings/{code}/cancel:
+    post:
+      tags: [Bookings]
+      summary: Cancel a booking (customer)
+      description: |
+        Only the session that created the booking may cancel it, only while it is `confirmed`, and
+        only before the show starts. The seats become available again immediately.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: X-Session-Id, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ booking: Booking }` with `status: "cancelled"`'
+        '400':
+          description: SESSION_REQUIRED
+        '404':
+          description: NOT_FOUND (unknown reference, or the booking belongs to another session)
+        '409':
+          description: BOOKING_NOT_CANCELLABLE
+
+  /api/admin/login:
+    post:
+      tags: [Admin]
+      summary: Check the staff PIN
+      description: Body `{ pin }`. No session is created; the client keeps the PIN and sends it on each admin call.
+      responses:
+        '200':
+          description: '`{ ok: true }`'
+        '401':
+          description: UNAUTHORIZED
+
+  /api/admin/overview:
+    get:
+      tags: [Admin]
+      summary: Day dashboard
+      description: |
+        `AdminOverview` for one calendar day (`date`, default today, cinema time): totals and one row
+        per showtime with seats booked/held, occupancy and revenue. Cancelled bookings are excluded
+        from tickets, revenue and occupancy.
+      parameters:
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: AdminOverview
+        '400':
+          description: VALIDATION (bad date)
+        '401':
+          description: UNAUTHORIZED
+
+  /api/admin/bookings:
+    get:
+      tags: [Admin]
+      summary: Search bookings
+      description: |
+        `{ bookings: AdminBookingRow[], total }`, newest first. `date` filters by the showtime's
+        calendar day; `q` matches the reference, phone or customer name (case-insensitive substring);
+        `limit` defaults to 100 (max 500). `total` is the number of matches before the limit.
+      parameters:
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ bookings, total }`'
+        '401':
+          description: UNAUTHORIZED
+
+  /api/admin/bookings/{code}/check-in:
+    post:
+      tags: [Admin]
+      summary: Mark a booking as admitted at the door
+      description: Allowed once, for a `confirmed` booking. A `box_office` booking's payment becomes `paid`.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ booking }` with `status: "checked_in"`'
+        '401':
+          description: UNAUTHORIZED
+        '404':
+          description: NOT_FOUND
+        '409':
+          description: BOOKING_NOT_CHECKINABLE (cancelled or already checked in), with `details.status`
+
+  /api/admin/bookings/{code}/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel a booking (staff)
+      description: Staff may cancel any `confirmed` booking, even after the show has started.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ booking }` with `status: "cancelled"`'
+        '401':
+          description: UNAUTHORIZED
+        '404':
+          description: NOT_FOUND
+        '409':
+          description: BOOKING_NOT_CANCELLABLE
+
+  /api/admin/reset:
+    post:
+      tags: [Admin]
+      summary: Reset the demo
+      description: |
+        Deletes every booking and hold, regenerates the schedule window and the seeded demo bookings,
+        and sends a `reset` event on every open seat stream. Films and halls are re-read from the code.
+      parameters:
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ ok: true }`'
+        '401':
+          description: UNAUTHORIZED

@@ -1,0 +1,47 @@
+/** Checkout strings. */
+export const checkout = {
+  title: 'Confirm your booking',
+  backToSeats: 'Back to seat selection',
+  step: 'Step {current} of {total}',
+  details: {
+    title: 'Your details',
+    name: 'Full name',
+    namePlaceholder: 'e.g. Lina Haddad',
+    phone: 'Mobile number',
+    phonePlaceholder: '09XX XXX XXX',
+    phoneHint: 'We send your booking reference to this number.',
+    nameError: 'Please enter your name (at least 2 letters).',
+    phoneError: 'Please enter a Syrian mobile number, e.g. 0944 123 456.',
+  },
+  payment: {
+    title: 'Payment',
+    boxOffice: 'Pay at the box office',
+    boxOfficeBody: 'Reserve now and pay in cash when you collect your tickets — at least 15 minutes before the show.',
+    online: 'Pay online',
+    onlineBody: 'E-wallet payment such as Sham Cash or Syriatel Cash.',
+    demoBadge: 'Demo',
+    onlineDemoNote: 'In this demo no money is taken: the payment is simulated.',
+    recommended: 'Most popular',
+  },
+  summary: {
+    title: 'Order summary',
+    seats: 'Seats',
+    perSeat: '{count} × {price}',
+    glasses: 'includes 3D glasses',
+    total: 'Total',
+  },
+  confirm: 'Confirm booking',
+  confirmPay: 'Pay {total} and book',
+  processing: 'Confirming your booking…',
+  paying: 'Processing payment…',
+  terms: 'By confirming you agree to arrive 15 minutes before the show. Bookings can be cancelled up to the start time.',
+  empty: {
+    title: 'No seats selected',
+    body: 'Your seats are no longer held — they may have been released after the timer ran out.',
+    action: 'Choose seats',
+  },
+  errors: {
+    seatsTaken: 'Sorry — {seats} was just taken by someone else. Please choose again.',
+    generic: 'We could not complete your booking. Please try again.',
+  },
+};

@@ -1,0 +1,56 @@
+import { plural } from '../../plural';
+import type { ticket as en } from '../en/ticket';
+
+/** Arabic twin of ../en/ticket.ts. */
+export const ticket: typeof en = {
+  confirmedTitle: 'تمّ الحجز بنجاح!',
+  confirmedBody: 'مقاعدك محجوزة. أبرز هذه التذكرة عند المدخل.',
+  ticketTitle: 'تذكرتك',
+  reference: 'رقم الحجز',
+  scan: 'أبرز هذا الرمز عند المدخل',
+  date: 'التاريخ',
+  time: 'الموعد',
+  hall: 'الصالة',
+  seats: 'المقاعد',
+  name: 'الاسم',
+  total: 'الإجمالي',
+  payDue: 'ادفع {total} عند شبّاك التذاكر قبل العرض بـ15 دقيقة على الأقل.',
+  paid: 'مدفوع',
+  actions: {
+    print: 'طباعة',
+    calendar: 'أضف إلى التقويم',
+    copyLink: 'نسخ الرابط',
+    cancel: 'إلغاء الحجز',
+    bookMore: 'احجز فيلماً آخر',
+    myTickets: 'تذاكري',
+    seeSeat: 'شاهد الإطلالة من مقعدي',
+  },
+  cancel: {
+    title: 'هل تريد إلغاء هذا الحجز؟',
+    body: 'ستُتاح مقاعدك لزبائن آخرين. لا يمكن التراجع عن الإلغاء.',
+    confirm: 'نعم، ألغِ الحجز',
+    keep: 'أبقِ على حجزي',
+    onlyOwner: 'لا يمكن إلغاء هذا الحجز إلا من الجهاز الذي أُجري منه.',
+  },
+  cancelledBanner: 'أُلغي هذا الحجز.',
+  checkedInBanner: 'تم الدخول — استمتع بالفيلم!',
+  started: 'بدأ هذا العرض.',
+  notFound: 'لا يوجد حجز بهذا الرقم.',
+  my: {
+    title: 'تذاكري',
+    subtitle: 'الحجوزات التي أجريتها من هذا الجهاز.',
+    empty: 'ليس لديك أي حجوزات بعد.',
+    upcoming: 'القادمة',
+    past: 'السابقة والملغاة',
+    count: plural({
+      zero: 'لا تذاكر',
+      one: 'تذكرة واحدة',
+      two: 'تذكرتان',
+      few: '{count} تذاكر',
+      many: '{count} تذكرة',
+      other: '{count} تذكرة',
+    }),
+    open: 'فتح التذكرة',
+  },
+  calendarTitle: '{film} — سينما سيتي',
+};

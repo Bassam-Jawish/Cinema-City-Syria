@@ -1,0 +1,48 @@
+import { plural } from '../../plural';
+
+/** E-ticket and "my tickets" strings. */
+export const ticket = {
+  confirmedTitle: 'You are all set!',
+  confirmedBody: 'Your seats are booked. Show this ticket at the entrance.',
+  ticketTitle: 'Your ticket',
+  reference: 'Booking reference',
+  scan: 'Show this code at the entrance',
+  date: 'Date',
+  time: 'Time',
+  hall: 'Hall',
+  seats: 'Seats',
+  name: 'Name',
+  total: 'Total',
+  payDue: 'Pay {total} at the box office at least 15 minutes before the show.',
+  paid: 'Paid',
+  actions: {
+    print: 'Print',
+    calendar: 'Add to calendar',
+    copyLink: 'Copy link',
+    cancel: 'Cancel booking',
+    bookMore: 'Book another film',
+    myTickets: 'My tickets',
+    seeSeat: 'See the view from my seat',
+  },
+  cancel: {
+    title: 'Cancel this booking?',
+    body: 'Your seats will be released for other customers. This cannot be undone.',
+    confirm: 'Yes, cancel it',
+    keep: 'Keep my booking',
+    onlyOwner: 'Only the device that made this booking can cancel it.',
+  },
+  cancelledBanner: 'This booking was cancelled.',
+  checkedInBanner: 'Checked in — enjoy the film!',
+  started: 'This show has started.',
+  notFound: 'No booking matches this reference.',
+  my: {
+    title: 'My tickets',
+    subtitle: 'Bookings made on this device.',
+    empty: 'You have no bookings yet.',
+    upcoming: 'Upcoming',
+    past: 'Past and cancelled',
+    count: plural({ one: '{count} ticket', other: '{count} tickets' }),
+    open: 'Open ticket',
+  },
+  calendarTitle: '{film} — Cinema City',
+};

@@ -69,7 +69,9 @@ function main(): void {
 
   server.on('error', (error: NodeJS.ErrnoException) => {
     console.error(
-      error.code === 'EADDRINUSE' ? `Port ${config.port} is already in use — set PORT to another port.` : 'Server error:',
+      error.code === 'EADDRINUSE'
+        ? `Port ${config.port} is already in use — stop the server running there, or set API_PORT to another port.`
+        : 'Server error:',
       error.code === 'EADDRINUSE' ? '' : error,
     );
     ctx.close();

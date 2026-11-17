@@ -39,7 +39,8 @@ Then open <http://localhost:4000>. The terminal also prints the LAN address (e.g
 npm run dev
 ```
 
-Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy).
+Then open <http://localhost:5173> (the API runs on port 4100 behind Vite's proxy — not 4000, so a
+`npm run demo` left running cannot answer the dev site with an older programme).
 
 | Page | URL |
 | --- | --- |
@@ -179,7 +180,7 @@ public/            film artwork, favicon
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `API_PORT` / `PORT` | `4000` | Server port (in `npm run dev` only `API_PORT` is used; Vite stays on 5173) |
+| `API_PORT` / `PORT` | `4000` | Server port (in `npm run dev` only `API_PORT` is used, default `4100`; Vite stays on 5173) |
 | `HOLD_MINUTES` | `10` | How long selected seats are held before checkout |
 | `ADMIN_PIN` | `1234` | Staff dashboard PIN |
 | `DB_FILE` | `data/cinema.db` | SQLite database file |

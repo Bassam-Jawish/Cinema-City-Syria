@@ -133,14 +133,14 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
   seat" with a unique index; every change is pushed to every open browser over Server-Sent Events.
 - **The screen** behaves like a real one: the house lights wash out the pre-show picture, the
   projector is brightest in the middle, black velour masking frames the picture and glides in to
-  frame a 16:9 trailer on the 2.39:1 scope screen, and the picture's light flickers across the room.
+  frame a 16:9 trailer on the 2.39:1 scope screen, and the room is lit by the picture itself.
 - **The trailer on the 3D screen.** Staff upload a video per film; the server streams it to disk,
   checks by its first bytes that it really is an MP4 or WebM, and serves it with range requests so
   playback starts at once. When a customer sits down, a hidden `<video>` plays it into a WebGL
   texture on the screen — so heads in the rows ahead hide the picture as they would in the hall, and
-  the screen light takes the picture's measured colour and brightness. It starts during the
-  fly-in's last moment, pauses when you stand and picks up where it left off; where the browser
-  blocks sound it plays muted with a one-click *hear the trailer* button.
+  the screen light takes the picture's measured colour and brightness. It starts as you settle
+  into the seat, pauses when you stand and picks up where it left off; where the browser blocks
+  sound it plays muted with a one-click *hear the trailer* button.
 - **Performance:** all seats of a hall are drawn with a handful of instanced meshes (a few draw
   calls whatever the size), the resolution adapts to the GPU, and the 3D engine is loaded only when a
   hall is opened. Without WebGL the accessible 2D seat map takes over.

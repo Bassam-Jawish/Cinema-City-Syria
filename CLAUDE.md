@@ -34,6 +34,6 @@ Pushing `master` to GitHub (`origin`) is a separate step: ask first.
 
 ## Commands
 
-- `npm run dev` — web app on http://localhost:5173 with the API on 4000; `npm run demo` — production
+- `npm run dev` — web app on http://localhost:5173 with the API on 4100; `npm run demo` — production
   build served on http://localhost:4000. Staff page `/staff`, PIN 1234.
 - `npm test`, `npm run typecheck`, `npm run build`.

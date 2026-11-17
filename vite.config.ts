@@ -3,8 +3,9 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
-// The API's port in development (see server/config.ts). Not PORT: tools set that for the web app.
-const API_PORT = Number(process.env.API_PORT ?? 4000);
+// The API's port in development: DEFAULT_DEV_PORT in server/config.ts, not the demo server's 4000, so a
+// demo left running cannot serve this site. Not PORT: tools set that for the web app.
+const API_PORT = Number(process.env.API_PORT ?? 4100);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

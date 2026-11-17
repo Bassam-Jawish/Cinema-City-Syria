@@ -1,7 +1,8 @@
 /**
  * Server settings, read once from environment variables. Every variable is optional.
  *
- *   API_PORT       HTTP port (default 4000). Takes precedence over PORT.
+ *   API_PORT       HTTP port (default 4000; in development 4100, see DEFAULT_DEV_PORT). Takes precedence
+ *                  over PORT.
  *   PORT           HTTP port when API_PORT is not set — ignored in development (`--dev`), where PORT
  *                  belongs to the Vite dev server (preview tools set it for the web app).
  *   HOST           Interface to bind (default: all interfaces, so a phone on the same Wi-Fi can open the demo).
@@ -29,6 +30,11 @@ export const DEFAULT_DB_FILE = path.join(PROJECT_ROOT, 'data', 'cinema.db');
 export const DEFAULT_TRAILERS_DIR = path.join(PROJECT_ROOT, 'data', 'trailers');
 export const DIST_DIR = path.join(PROJECT_ROOT, 'dist');
 export const DEFAULT_PORT = 4000;
+/**
+ * The API's port in development (`npm run dev`), apart from DEFAULT_PORT: a demo server left running
+ * on 4000 then cannot answer the dev site with an older programme. vite.config.ts proxies to it.
+ */
+export const DEFAULT_DEV_PORT = 4100;
 export const DEFAULT_ADMIN_PIN = '1234';
 
 export interface ServerConfig {
@@ -99,14 +105,16 @@ function dbFileFrom(env: Env): string {
 
 /**
  * @param dev development mode (`server/index.ts --dev`, used by `npm run dev`): the API runs next
- *            to the Vite dev server, so it ignores PORT and does not serve dist/.
+ *            to the Vite dev server, so it ignores PORT, listens on DEFAULT_DEV_PORT and does not
+ *            serve dist/.
  */
 export function loadConfig(env: Env = process.env, dev = process.argv.includes('--dev')): ServerConfig {
   const serveStatic = flag(env, 'SERVE_STATIC', !dev && existsSync(path.join(DIST_DIR, 'index.html')));
+  const fallbackPort = dev ? DEFAULT_DEV_PORT : DEFAULT_PORT;
   const port = raw(env, 'API_PORT')
-    ? numberIn(env, 'API_PORT', DEFAULT_PORT, 0, 65535, true)
+    ? numberIn(env, 'API_PORT', fallbackPort, 0, 65535, true)
     : dev
-      ? DEFAULT_PORT
+      ? DEFAULT_DEV_PORT
       : numberIn(env, 'PORT', DEFAULT_PORT, 0, 65535, true);
   return {
     port,

@@ -1,34 +1,41 @@
 /**
  * Box-office dashboard for cinema staff: live occupancy and revenue per show, a booking search,
- * door check-in by booking reference, and a demo reset. Protected by a PIN (demo-grade).
+ * door check-in by booking reference, the films' trailers, and a demo reset. Protected by a PIN
+ * (demo-grade).
  */
 import { clsx } from 'clsx';
 import {
   Armchair,
   BadgeCheck,
   Banknote,
+  Clapperboard,
   DoorOpen,
   ExternalLink,
   LockKeyhole,
   LogOut,
   RotateCcw,
   ScanLine,
+  Play,
   Search,
   Ticket,
+  Trash2,
+  Upload,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { DEFAULT_TRAILER_MAX_MB } from '@shared/constants';
 import { addDays, cinemaDate } from '@shared/time';
-import type { AdminBookingRow, AdminShowtimeRow, Booking, ShowtimeStatus } from '@shared/types';
+import type { AdminBookingRow, AdminShowtimeRow, Booking, MovieWithShowtimes, ShowtimeStatus } from '@shared/types';
 import { Ltr } from '@/components/common/Bidi';
 import { DateStrip } from '@/components/movie/DateStrip';
+import { Poster } from '@/components/movie/Poster';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Skeleton } from '@/components/ui/Spinner';
 import { useI18n } from '@/i18n';
-import { api, errorCodeOf } from '@/lib/api';
-import { formatPhone, useFormat } from '@/lib/format';
+import { api, ApiError, errorCodeOf } from '@/lib/api';
+import { formatMegabytes, formatPhone, useFormat } from '@/lib/format';
 import { useAsync, useDocumentTitle, useInterval } from '@/lib/hooks';
 import { notify } from '@/store/notices';
 
@@ -240,6 +247,8 @@ function Dashboard({ pin, onSignOut }: { pin: string; onSignOut: () => void }) {
         onQuery={setQuery}
         onChanged={refresh}
       />
+
+      <TrailersPanel pin={pin} />
 
       <Dialog
         open={resetOpen}
@@ -466,6 +475,204 @@ function CheckInPanel({ pin, onDone }: { pin: string; onDone: () => void }) {
         </p>
       )}
     </section>
+  );
+}
+
+// ───────────────────────────── trailers ─────────────────────────────
+
+/** Upload, replace or remove the video each film plays on the hall's screen when a customer sits down. */
+function TrailersPanel({ pin }: { pin: string }) {
+  const { t, L } = useI18n();
+  const movies = useAsync((signal) => api.listMovies(signal), []);
+  const [removeTarget, setRemoveTarget] = useState<MovieWithShowtimes | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  const remove = async () => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    try {
+      await api.admin.removeTrailer(pin, removeTarget.id);
+      notify('success', 'trailerRemoved');
+      setRemoveTarget(null);
+      movies.reload();
+    } catch (error) {
+      notify('error', errorCodeOf(error) === 'NETWORK' ? 'network' : 'generic');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <section className="surface mt-6 rounded-3xl p-5" aria-labelledby="trailers-title">
+      <h2 id="trailers-title" className="flex items-center gap-2 text-xl text-cream">
+        <Clapperboard size={20} className="text-velvet-bright" aria-hidden="true" />
+        {t('admin.trailers.title')}
+      </h2>
+      <p className="mt-1 max-w-3xl text-sm text-sand">{t('admin.trailers.body', { max: DEFAULT_TRAILER_MAX_MB })}</p>
+      {movies.data ? (
+        <ul className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {movies.data.movies.map((movie) => (
+            <TrailerCard key={movie.id} pin={pin} movie={movie} onChanged={movies.reload} onRemove={() => setRemoveTarget(movie)} />
+          ))}
+        </ul>
+      ) : movies.error ? (
+        <p className="mt-5 text-sm text-bad">{t('common.errors.generic')}</p>
+      ) : (
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-28 rounded-2xl" />
+          ))}
+        </div>
+      )}
+      <Dialog
+        open={removeTarget !== null}
+        onClose={() => setRemoveTarget(null)}
+        title={t('admin.trailers.removeTitle')}
+        description={removeTarget ? `${L(removeTarget.title)} — ${t('admin.trailers.removeBody')}` : undefined}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRemoveTarget(null)}>
+              {t('common.actions.cancel')}
+            </Button>
+            <Button variant="danger" loading={removing} onClick={remove}>
+              {t('admin.trailers.remove')}
+            </Button>
+          </>
+        }
+      />
+    </section>
+  );
+}
+
+function TrailerCard({
+  pin,
+  movie,
+  onChanged,
+  onRemove,
+}: {
+  pin: string;
+  movie: MovieWithShowtimes;
+  onChanged: () => void;
+  onRemove: () => void;
+}) {
+  const { t, L, lang } = useI18n();
+  const f = useFormat();
+  const input = useRef<HTMLInputElement>(null);
+  const upload = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const trailer = movie.trailer;
+
+  // Leaving the page cancels an upload in flight.
+  useEffect(() => () => upload.current?.abort(), []);
+
+  const send = async (file: File) => {
+    setError(null);
+    setProgress(0);
+    const controller = new AbortController();
+    upload.current = controller;
+    try {
+      await api.admin.uploadTrailer(pin, movie.id, file, setProgress, controller.signal);
+      notify('success', 'trailerUploaded', { title: L(movie.title) });
+      onChanged();
+    } catch (failure) {
+      if (failure instanceof DOMException && failure.name === 'AbortError') return;
+      const code = errorCodeOf(failure);
+      if (code === 'FILE_TOO_LARGE') {
+        const max = (failure as ApiError).details as { maxMegabytes?: number } | undefined;
+        setError(t('admin.trailers.tooLarge', { max: max?.maxMegabytes ?? DEFAULT_TRAILER_MAX_MB }));
+      } else if (code === 'UNSUPPORTED_FILE') {
+        setError(t('admin.trailers.unsupported'));
+      } else if (code === 'UNAUTHORIZED') {
+        notify('error', 'wrongPin');
+      } else {
+        setError(code === 'NETWORK' ? t('common.errors.network') : t('admin.trailers.failed'));
+      }
+    } finally {
+      upload.current = null;
+      setProgress(null);
+      if (input.current) input.current.value = '';
+    }
+  };
+
+  const megabytes = trailer ? t('admin.trailers.megabytes', { size: formatMegabytes(trailer.size, lang) }) : '';
+
+  return (
+    <li className="flex gap-3 rounded-2xl border border-cream/10 bg-night-900/50 p-3">
+      <Poster movie={movie} className="w-16 shrink-0 self-start rounded-lg" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate font-semibold text-cream">{L(movie.title)}</p>
+          {movie.status === 'coming_soon' && <Badge>{t('admin.trailers.comingSoon')}</Badge>}
+        </div>
+        <p className={clsx('mt-0.5 text-xs', trailer ? 'text-ok' : 'text-sand')}>
+          {trailer ? t('admin.trailers.ready', { size: megabytes, date: f.dateTime(trailer.updatedAt) }) : t('admin.trailers.none')}
+        </p>
+
+        {progress !== null ? (
+          <div className="mt-3">
+            <div
+              role="progressbar"
+              aria-label={L(movie.title)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(progress * 100)}
+              className="h-1.5 overflow-hidden rounded-full bg-cream/10"
+            >
+              <div className="h-full rounded-full bg-marquee transition-[width] duration-200" style={{ width: `${progress * 100}%` }} />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-sand">
+              <span className="nums">{t('admin.trailers.uploading', { percent: Math.round(progress * 100) })}</span>
+              <button type="button" onClick={() => upload.current?.abort()} className="text-sand underline-offset-2 hover:text-cream hover:underline">
+                {t('admin.trailers.cancel')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              variant={trailer ? 'secondary' : 'primary'}
+              icon={<Upload size={14} aria-hidden="true" />}
+              onClick={() => input.current?.click()}
+            >
+              {trailer ? t('admin.trailers.replace') : t('admin.trailers.upload')}
+            </Button>
+            {trailer && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Play size={14} aria-hidden="true" />}
+                onClick={() => window.open(trailer.url, '_blank', 'noopener,noreferrer')}
+              >
+                {t('admin.trailers.watch')}
+              </Button>
+            )}
+            {trailer && (
+              <Button size="sm" variant="ghost" icon={<Trash2 size={14} aria-hidden="true" />} onClick={onRemove}>
+                {t('admin.trailers.remove')}
+              </Button>
+            )}
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="mt-2 text-xs text-bad">
+            {error}
+          </p>
+        )}
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept="video/mp4,video/webm,.mp4,.m4v,.webm"
+        className="hidden"
+        aria-label={`${t('admin.trailers.upload')} — ${L(movie.title)}`}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void send(file);
+        }}
+      />
+    </li>
   );
 }
 

@@ -8,6 +8,7 @@
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite';
+import type { Readable } from 'node:stream';
 import { DEFAULT_HOLD_MINUTES, FILLING_FAST_THRESHOLD, MAX_SEATS_PER_BOOKING, normalizeSyrianMobile } from '../shared/constants';
 import { parseSeatId, type SeatType } from '../shared/hall';
 import { cinemaDate } from '../shared/time';
@@ -33,6 +34,7 @@ import type {
   ShowtimeDetail,
   ShowtimeStatus,
   ShowtimeSummary,
+  Trailer,
 } from '../shared/types';
 import { loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from './catalog-store';
 import { normalizeBookingCode, randomBookingCode } from './codes';
@@ -40,6 +42,7 @@ import { isUniqueViolation, transaction } from './db';
 import { HttpError, notFound } from './errors';
 import type { LiveHub, SeatUpdate } from './live';
 import { ensureScheduleWindow, resetDemoData, scheduleWindow, type ScheduleSummary } from './seed';
+import type { TrailerStore } from './trailers';
 import { normalizeName, type BookingRequest } from './validation';
 
 /** How many upcoming showtimes each film carries in GET /api/movies. */
@@ -248,6 +251,8 @@ export interface BookingServiceOptions {
   adminPin?: string;
   /** Seed demo bookings into newly generated showtimes (and on reset). */
   seedBookings?: boolean;
+  /** Where uploaded trailer videos live. Without one, no film has a trailer and uploads are refused. */
+  trailers?: TrailerStore | null;
 }
 
 export interface AdminBookingQuery {
@@ -266,6 +271,7 @@ export class BookingService {
   private readonly adminPinDigest: Buffer;
   private readonly searchStatements = new Map<string, StatementSync>();
   private catalogState: CatalogRuntime;
+  private readonly trailers: TrailerStore | null;
   private scheduleCheckedAt = Number.NEGATIVE_INFINITY;
   private scheduleCheckedFor = '';
 
@@ -278,8 +284,10 @@ export class BookingService {
     this.adminPinDigest = createHash('sha256').update(options.adminPin ?? '').digest();
     if (!(this.holdMinutes > 0)) throw new Error('holdMinutes must be positive');
 
+    this.trailers = options.trailers ?? null;
     syncCatalog(this.db);
     this.catalogState = loadCatalog(this.db);
+    this.applyTrailers();
     this.sql = prepareStatements(this.db);
     this.ensureSchedule(true);
   }
@@ -675,13 +683,52 @@ export class BookingService {
     const now = this.now();
     const { catalog, summary } = resetDemoData(this.db, now, { seedBookings: this.seedBookings });
     this.catalogState = catalog;
+    this.applyTrailers();
     this.scheduleCheckedAt = now;
     this.scheduleCheckedFor = cinemaDate(now);
     this.hub.publishReset(iso(now));
     return summary;
   }
 
+  // ───────────── Trailers ─────────────
+
+  /** Staff: stores an uploaded video (streamed, never buffered) as the film's trailer. */
+  async uploadTrailer(movieId: string, body: Readable, declaredBytes?: number): Promise<Trailer> {
+    this.activeMovie(movieId);
+    const trailer = await this.trailerStore().save(movieId, body, declaredBytes);
+    this.applyTrailers();
+    return trailer;
+  }
+
+  /** Staff: deletes the film's trailer; the hall shows its still again. */
+  removeTrailer(movieId: string): void {
+    this.activeMovie(movieId);
+    this.trailerStore().remove(movieId);
+    this.applyTrailers();
+  }
+
+  /** The file behind a trailer URL ("<film id>.<mp4|webm>"), or null. */
+  trailerFile(fileName: string): { path: string; type: string } | null {
+    return this.trailers?.resolve(fileName) ?? null;
+  }
+
   // ───────────── Internals ─────────────
+
+  private trailerStore(): TrailerStore {
+    if (!this.trailers) throw new HttpError(503, 'INTERNAL', 'Trailer storage is not configured');
+    return this.trailers;
+  }
+
+  /** Puts each film's current trailer on the cached film objects every response is built from. */
+  private applyTrailers(): void {
+    for (const movie of this.catalogState.movies.values()) movie.trailer = this.trailers?.get(movie.id) ?? null;
+  }
+
+  private activeMovie(movieId: string): Movie {
+    const movie = this.catalogState.movieOrder.has(movieId) ? this.catalogState.movies.get(movieId) : undefined;
+    if (!movie) throw notFound(`No film with id "${movieId}"`);
+    return movie;
+  }
 
   private readonly compareMovies = (a: Movie, b: Movie): number => {
     const group = (movie: Movie): number => (movie.status === 'now_showing' ? 0 : 1);

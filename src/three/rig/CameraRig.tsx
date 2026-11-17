@@ -518,8 +518,6 @@ export function CameraRig({ geometry: g }: CameraRigProps) {
   }, [gl, r]);
 
   // ── per frame ──
-  // Priority -1: the camera is final before anything else this frame looks at it (the projected
-  // trailer must line up with the screen exactly, not one frame behind).
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.05);
     const store = useBooking.getState();
@@ -548,8 +546,7 @@ export function CameraRig({ geometry: g }: CameraRigProps) {
       r.viewShift = 0;
       camera.clearViewOffset();
     }
-    camera.updateMatrixWorld();
-  }, -1);
+  });
 
   function resetLook() {
     r.yawGoal = 0;

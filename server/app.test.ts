@@ -5,7 +5,7 @@
  * Each test gets a fresh in-memory database, a clock that only moves when the test says so, and no
  * seeded bookings (every seat starts free).
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -27,6 +27,7 @@ import type {
   SeatStreamEvent,
   ShowtimeDetail,
   ShowtimeSummary,
+  Trailer,
 } from '../shared/types';
 import { createApp, type AppContext, type AppOptions } from './app';
 import { BOOKING_CODE_ALPHABET } from './codes';
@@ -291,20 +292,6 @@ describe('catalogue', () => {
         expect(show.status).toBe('open');
       }
     }
-  });
-
-  it("sends each film's trailer (YouTube id, start, picture shape) to the film and hall pages", async () => {
-    const withTrailer = CATALOG.find((movie) => movie.trailer)!;
-    const film = await call('get', `/api/movies/${withTrailer.id}`);
-    expect(film.body.movie.trailer).toEqual(withTrailer.trailer);
-    expect(film.body.movie.trailer).toMatchObject({ youtubeId: expect.stringMatching(/^[\w-]{11}$/), start: expect.any(Number) });
-
-    const show = showtimesOf(HALL.id).find((row) => row.movie_id === withTrailer.id)!;
-    const hall = await detail(ALICE, show.id);
-    expect(hall.body.movie.trailer).toEqual(withTrailer.trailer);
-
-    const comingSoon = CATALOG.find((movie) => movie.status === 'coming_soon')!;
-    expect((await call('get', `/api/movies/${comingSoon.id}`)).body.movie.trailer).toBeNull();
   });
 
   it('drops started shows from nextShowtimes and keeps sold-out ones, flagged', async () => {
@@ -1200,6 +1187,115 @@ describe('demo data', () => {
 });
 
 // ───────────────────────────── HTTP plumbing ─────────────────────────────
+
+// ───────────────────────────── Trailers ─────────────────────────────
+
+/** The first bytes of real MP4 and WebM files, padded: enough for the server to recognise them. */
+const MP4_BYTES = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(2048, 7)]);
+const WEBM_BYTES = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(1024, 3)]);
+const FILM = 'the-last-caravan';
+
+function uploadTrailer(movieId: string, bytes: Buffer, { pin = PIN, type = 'video/mp4' }: { pin?: string | null; type?: string } = {}) {
+  let req = request(ctx.app).post(`/api/admin/movies/${movieId}/trailer`).set('Content-Type', type);
+  if (pin) req = req.set(ADMIN_PIN_HEADER, pin);
+  return req.send(bytes);
+}
+
+const trailersFolder = () => ctx.trailersDir;
+const filmTrailer = async (movieId = FILM) => (await call('get', `/api/movies/${movieId}`)).body.movie.trailer as Trailer | null;
+
+describe('trailers', () => {
+  it('lets staff upload a film trailer, which every film payload then carries and the hall can stream', async () => {
+    expect(await filmTrailer()).toBeNull();
+    expect((await uploadTrailer(FILM, MP4_BYTES, { pin: null })).status).toBe(401);
+    expect((await uploadTrailer(FILM, MP4_BYTES, { pin: '0000' })).status).toBe(401);
+
+    const res = await uploadTrailer(FILM, MP4_BYTES);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const trailer = res.body.trailer as Trailer;
+    expect(trailer).toEqual({
+      url: expect.stringMatching(new RegExp(`^/api/trailers/${FILM}\\.mp4\\?v=\\d+$`)),
+      type: 'video/mp4',
+      size: MP4_BYTES.length,
+      updatedAt: expect.any(String),
+    });
+
+    // The film, its catalogue entry and the hall page all carry it.
+    expect(await filmTrailer()).toEqual(trailer);
+    const listed = ((await call('get', '/api/movies')).body.movies as MovieWithShowtimes[]).find((m) => m.id === FILM);
+    expect(listed?.trailer).toEqual(trailer);
+    const show = showtimesOf(HALL.id).find((row) => row.movie_id === FILM)!;
+    expect((await detail(ALICE, show.id)).body.movie.trailer).toEqual(trailer);
+
+    // Streamed whole, or in ranges so the player can start early and seek.
+    const whole = await request(ctx.app).get(trailer.url).buffer(true).parse((r, done) => {
+      const chunks: Buffer[] = [];
+      r.on('data', (c: Buffer) => chunks.push(c));
+      r.on('end', () => done(null, Buffer.concat(chunks)));
+    });
+    expect(whole.status).toBe(200);
+    expect(whole.headers['content-type']).toMatch(/^video\/mp4/);
+    expect(whole.headers['cache-control']).toContain('immutable');
+    expect(Buffer.compare(whole.body as Buffer, MP4_BYTES)).toBe(0);
+    const part = await request(ctx.app).get(trailer.url).set('Range', 'bytes=4-11');
+    expect(part.status).toBe(206);
+    expect(part.headers['content-range']).toBe(`bytes 4-11/${MP4_BYTES.length}`);
+  });
+
+  it('replaces a trailer with one of another format, and removes it', async () => {
+    const first = (await uploadTrailer(FILM, MP4_BYTES)).body.trailer as Trailer;
+    const second = await uploadTrailer(FILM, WEBM_BYTES, { type: 'video/webm' });
+    expect(second.status).toBe(201);
+    expect(second.body.trailer).toMatchObject({ type: 'video/webm', size: WEBM_BYTES.length, url: expect.stringContaining(`${FILM}.webm?v=`) });
+    expect((await request(ctx.app).get(first.url)).status).toBe(404);
+    expect(readdirSync(trailersFolder()).sort()).toEqual([`${FILM}.webm`]);
+
+    expect((await call('delete', `/api/admin/movies/${FILM}/trailer`)).status).toBe(401);
+    const removed = await call('delete', `/api/admin/movies/${FILM}/trailer`, { pin: PIN });
+    expect(removed.status).toBe(200);
+    expect(await filmTrailer()).toBeNull();
+    expect((await request(ctx.app).get((second.body.trailer as Trailer).url)).status).toBe(404);
+    expect(readdirSync(trailersFolder())).toEqual([]);
+  });
+
+  it('refuses files that are not MP4 or WebM video, oversized files and unknown films, leaving nothing behind', async () => {
+    const text = await uploadTrailer(FILM, Buffer.from('this is not a video'), { type: 'video/mp4' });
+    expect(text.status).toBe(415);
+    expect(text.body.error.code).toBe('UNSUPPORTED_FILE');
+    expect((await uploadTrailer(FILM, Buffer.alloc(0))).body.error.code).toBe('UNSUPPORTED_FILE');
+    expect((await uploadTrailer('no-such-film', MP4_BYTES)).status).toBe(404);
+    expect(readdirSync(trailersFolder())).toEqual([]);
+
+    ctx.close();
+    setup({ trailerMaxBytes: 1024 });
+    const big = await uploadTrailer(FILM, MP4_BYTES);
+    expect(big.status).toBe(413);
+    expect(big.body.error).toMatchObject({ code: 'FILE_TOO_LARGE', details: { maxBytes: 1024 } });
+    expect(readdirSync(trailersFolder())).toEqual([]);
+    expect(await filmTrailer()).toBeNull();
+  });
+
+  it('picks up trailer files already in the folder and keeps them through a demo reset', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ccs-trailers-test-'));
+    try {
+      writeFileSync(path.join(dir, `${FILM}.webm`), WEBM_BYTES);
+      writeFileSync(path.join(dir, 'notes.txt'), 'ignored');
+      writeFileSync(path.join(dir, '.upload-0000'), 'an interrupted upload');
+      ctx.close();
+      setup({ trailersDir: dir });
+      expect(await filmTrailer()).toMatchObject({ type: 'video/webm', size: WEBM_BYTES.length });
+      expect(readdirSync(dir).sort()).toEqual(['notes.txt', `${FILM}.webm`]);
+      expect((await adminPost('/api/admin/reset')).status).toBe(200);
+      expect(await filmTrailer()).toMatchObject({ type: 'video/webm' });
+      // A folder the app was given is the caller's: close() leaves it alone.
+      ctx.close();
+      expect(readdirSync(dir)).toContain(`${FILM}.webm`);
+      setup();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('http plumbing', () => {
   it('answers unknown API routes with NOT_FOUND JSON', async () => {

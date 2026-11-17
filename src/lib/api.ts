@@ -17,6 +17,7 @@ import type {
   ReleaseResult,
   ScheduleDay,
   ShowtimeDetail,
+  Trailer,
 } from '@shared/types';
 import { getSessionId } from './session';
 
@@ -153,5 +154,49 @@ export const api = {
 
     /** Wipes customer bookings and holds and re-seeds the demo data. */
     resetDemo: (pin: string) => request<{ ok: true }>('POST', '/admin/reset', { adminPin: pin }),
+
+    /**
+     * Uploads a video file as the film's trailer, replacing any previous one. The file is sent as
+     * the request body (no form encoding); `onProgress` receives 0–1 as it goes up.
+     */
+    uploadTrailer: (pin: string, movieId: string, file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal) =>
+      new Promise<Trailer>((resolve, reject) => {
+        // XMLHttpRequest rather than fetch: fetch cannot report upload progress.
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/admin/movies/${enc(movieId)}/trailer`);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.setRequestHeader(ADMIN_PIN_HEADER, pin);
+        xhr.setRequestHeader(SESSION_HEADER, getSessionId());
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+        };
+        xhr.onload = () => {
+          let payload: unknown = null;
+          try {
+            payload = JSON.parse(xhr.responseText);
+          } catch {
+            // Non-JSON body (e.g. a proxy error page) — handled below.
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve((payload as { trailer: Trailer }).trailer);
+            return;
+          }
+          const body = payload as ApiErrorBody | null;
+          reject(
+            body?.error?.code
+              ? new ApiError(body.error.code, xhr.status, body.error.message, body.error.details)
+              : new ApiError(xhr.status >= 502 ? 'NETWORK' : 'INTERNAL', xhr.status, `HTTP ${xhr.status}`),
+          );
+        };
+        xhr.onerror = () => reject(new ApiError('NETWORK', 0, 'The server could not be reached'));
+        xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+        signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+        xhr.send(file);
+      }),
+
+    /** Deletes the film's trailer; the hall shows its still again. */
+    removeTrailer: (pin: string, movieId: string) =>
+      request<{ ok: true }>('DELETE', `/admin/movies/${enc(movieId)}/trailer`, { adminPin: pin }),
   },
 };

@@ -139,6 +139,8 @@ export const common = {
     demoReset: 'Demo data has been reset.',
     checkedIn: 'Ticket checked in.',
     wrongPin: 'Incorrect PIN.',
+    trailerUploaded: 'Trailer uploaded for {title}.',
+    trailerRemoved: 'Trailer removed.',
   },
   errors: {
     title: 'Something went wrong',

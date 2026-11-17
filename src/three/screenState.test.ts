@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pictureLevel, pictureRect, videoFrameRect } from './screenState';
+import { averageColour, lightForLuma, pictureRect } from './screenState';
 
 const SCOPE = { width: 11.6, height: 11.6 / 2.39 };
 
@@ -19,31 +19,26 @@ describe('screen framing', () => {
     expect(wider.width).toBeCloseTo(SCOPE.width);
     expect(wider.height).toBeLessThan(SCOPE.height);
   });
-
-  it("sizes YouTube's 16:9 frame so the picture inside it lands exactly on the picture area", () => {
-    // A letterboxed scope trailer: the frame is as wide as the picture and taller (bars hidden by masking).
-    const scope = pictureRect(SCOPE, 2.39);
-    const scopeFrame = videoFrameRect(scope, 2.39);
-    expect(scopeFrame.width).toBeCloseTo(scope.width);
-    expect(scopeFrame.width / scopeFrame.height).toBeCloseTo(16 / 9);
-    // A full-frame trailer: frame and picture coincide.
-    const flat = pictureRect(SCOPE, 16 / 9);
-    const flatFrame = videoFrameRect(flat, 16 / 9);
-    expect(flatFrame.width).toBeCloseTo(flat.width);
-    expect(flatFrame.height).toBeCloseTo(flat.height);
-    // A 4:3 picture pillarboxed inside the 16:9 frame: as tall as the picture, wider.
-    const academy = pictureRect(SCOPE, 4 / 3);
-    const academyFrame = videoFrameRect(academy, 4 / 3);
-    expect(academyFrame.height).toBeCloseTo(academy.height);
-    expect(academyFrame.width).toBeGreaterThan(academy.width);
-  });
 });
 
-describe('pictureLevel', () => {
-  it('stays within 0–1 and keeps changing, like a film', () => {
-    const samples = Array.from({ length: 600 }, (_, i) => pictureLevel(i * 0.05));
-    expect(Math.min(...samples)).toBeGreaterThanOrEqual(0);
-    expect(Math.max(...samples)).toBeLessThanOrEqual(1);
-    expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(0.3);
+describe('picture light', () => {
+  const pixels = (r: number, g: number, b: number, n = 4) => Array.from({ length: n }, () => [r, g, b, 255]).flat();
+
+  it('measures the brightness and colour of a frame', () => {
+    const white = averageColour(pixels(255, 255, 255));
+    expect(white.luma).toBeCloseTo(1);
+    expect(white.tint).toEqual({ r: 1, g: 1, b: 1 });
+    const sunset = averageColour(pixels(200, 100, 40));
+    expect(sunset.tint.r).toBe(1);
+    expect(sunset.tint.g).toBeCloseTo(0.5);
+    expect(sunset.luma).toBeGreaterThan(0.3);
+    // Black frames do not tint the room.
+    expect(averageColour(pixels(0, 0, 0)).tint).toEqual({ r: 1, g: 1, b: 1 });
+  });
+
+  it('dims the room for dark scenes and floods it for bright ones', () => {
+    expect(lightForLuma(0)).toBeLessThan(0.5);
+    expect(lightForLuma(1)).toBeGreaterThan(1.5);
+    expect(lightForLuma(0.4)).toBeCloseTo(0.95);
   });
 });

@@ -1,6 +1,7 @@
 /**
  * DEV ONLY (/dev/hall): renders any hall with fake seat data and no server, for tuning the 3D scene.
- * Not included in production builds.
+ * Not included in production builds. `?trailer=<video url>` plays that video when you sit down
+ * (e.g. a trailer uploaded on the staff page: /api/trailers/<film-id>.mp4).
  */
 import { useEffect, useState } from 'react';
 import { buildHallGeometry } from '@shared/hall';
@@ -23,7 +24,11 @@ export default function HallSandbox() {
 
   useEffect(() => {
     const hall = HALLS[hallIndex];
-    const movie = CATALOG[movieIndex];
+    const trailerUrl = new URLSearchParams(window.location.search).get('trailer');
+    const movie = {
+      ...CATALOG[movieIndex],
+      trailer: trailerUrl ? { url: trailerUrl, type: 'video/mp4' as const, size: 0, updatedAt: '' } : null,
+    };
     const g = buildHallGeometry(hall.layout);
     const taken: Record<string, 'booked' | 'held'> = {};
     g.seats.forEach((seat, i) => {

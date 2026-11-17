@@ -31,6 +31,14 @@ export function formatNumber(value: number, lang: Lang): string {
   return format.format(value);
 }
 
+const megabyteFormats: Partial<Record<Lang, Intl.NumberFormat>> = {};
+
+/** A file size in megabytes with one decimal, e.g. "2.3" (unit added by the caller's string). */
+export function formatMegabytes(bytes: number, lang: Lang): string {
+  const format = (megabyteFormats[lang] ??= new Intl.NumberFormat(LOCALE[lang], { maximumFractionDigits: 1 }));
+  return format.format(bytes / (1024 * 1024));
+}
+
 /** "25,000 ل.س" / "SYP 25,000". The currency mark is isolated so it never jumps around in RTL text. */
 export function formatPrice(amount: number, lang: Lang): string {
   const figure = formatNumber(amount, lang);

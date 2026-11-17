@@ -3,8 +3,8 @@
  *   - a warm hemisphere + two directional "house" lights that dim with the house-light cue;
  *   - one rectangular area light the size of the picture, tinted by the film, which lights the
  *     front of the room and the audience more strongly as the room goes dark. While the trailer
- *     plays its brightness follows the picture's cuts (screenState.level), so the room flickers
- *     with the film the way a real auditorium does.
+ *     plays it takes the colour and brightness of the actual picture (screenState.tint / light),
+ *     so the room changes with every shot, as a real auditorium does.
  * Sconces, downlights and step lights are emissive surfaces (see HallArchitecture).
  */
 import { useFrame } from '@react-three/fiber';
@@ -28,6 +28,7 @@ export function HallLighting({ geometry: g }: HallPartProps) {
 
   const accent = useBooking((s) => s.detail?.movie.accent ?? '#ffffff');
   const screenColor = useMemo(() => new THREE.Color(accent).lerp(new THREE.Color('#fff2e2'), 0.55), [accent]);
+  const tint = useMemo(() => new THREE.Color(), []);
 
   useLayoutEffect(() => {
     // Aim the area light from the screen towards the middle of the audience.
@@ -40,10 +41,11 @@ export function HallLighting({ geometry: g }: HallPartProps) {
     if (fill.current) fill.current.intensity = byHouse(0, 0.9);
     const light = screenLight.current;
     if (light) {
-      // A film is never one steady brightness: follow its cuts while the trailer plays.
-      const picture = 1 + screenState.video * (screenState.level - 0.6) * 1.1;
-      light.intensity = (0.8 + 4.6 * lightState.screen * (1.1 - lightState.house * 0.6)) * picture;
+      light.intensity = (0.8 + 4.6 * lightState.screen * (1.1 - lightState.house * 0.6)) * screenState.light;
       light.width = pictureRect(g.screen, screenState.aspect).width;
+      // While the trailer plays, the room takes on the colours of the picture.
+      const { r, g: green, b } = screenState.tint;
+      light.color.copy(screenColor).lerp(tint.setRGB(r, green, b), 0.75 * screenState.video);
     }
   });
 

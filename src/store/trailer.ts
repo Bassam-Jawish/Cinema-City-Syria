@@ -1,13 +1,13 @@
 /**
- * Trailer state shared by the 3D screen (which owns the YouTube player) and the HUD (which shows
- * the sound controls). The player itself lives in the scene; the HUD reaches it only through
- * setMuted(), which forwards to the player synchronously so the click's user activation counts.
+ * Trailer state shared by the 3D screen (which owns the video) and the HUD (which shows the sound
+ * controls). The video itself lives in the scene; the HUD reaches it only through setMuted(),
+ * which forwards to it synchronously so the click counts as the user gesture browsers want for sound.
  */
 import { create } from 'zustand';
-import type { TrailerPlayerStatus } from '@/three/trailer/youtube';
+import type { TrailerVideoStatus } from '@/three/trailer/TrailerVideo';
 
 /** 'none' = this film has no trailer, or the hall is not open; 'idle' = not started yet. */
-export type TrailerStatus = 'none' | 'idle' | TrailerPlayerStatus;
+export type TrailerStatus = 'none' | 'idle' | TrailerVideoStatus;
 
 export interface TrailerControls {
   setMuted: (muted: boolean) => void;
@@ -34,7 +34,7 @@ function readMuted(): boolean {
 
 let controls: TrailerControls | null = null;
 
-/** The scene registers the live player here (and null when it goes away). */
+/** The scene registers the live video here (and null when it goes away). */
 export function attachTrailerControls(next: TrailerControls | null): void {
   controls = next;
 }

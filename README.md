@@ -17,9 +17,8 @@ devices, an e-ticket with a QR code, and a box-office dashboard for staff.
 ## Quick start
 
 Requirements: **Node.js 22.13 or newer** (developed on Node 24) and npm. No database server, no
-internet connection and no API keys are needed — everything (fonts included) is self-hosted. The
-one exception is optional: film trailers stream from YouTube, so they need internet access; offline,
-the screen shows the film's still instead and everything else works the same.
+internet connection and no API keys are needed — everything (fonts included) is self-hosted,
+including the film trailers, which staff upload as video files on the box-office page.
 
 ```bash
 npm install
@@ -64,7 +63,8 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
    turn the hall, scroll to zoom.
 4. **Click a free seat.** It is held for you (10-minute timer) and the camera flies into it.
    The house lights dim, the masking closes in and **the film's trailer plays on the screen, with
-   sound** (if the browser starts it muted, one click on *Click to hear the trailer* fixes that).
+   sound** (upload one first — step 9; if the browser starts it muted, one click on *Click to hear
+   the trailer* fixes that). The room takes on the light and colours of the picture.
    The heads in the rows in front really do block part of the picture. **Move the mouse to look
    around** (point at the left edge to look left), scroll to zoom, *Esc* to stand up — the trailer
    pauses and picks up where it left off when you sit down again. The speaker button mutes it. The
@@ -80,8 +80,10 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
 8. **E-ticket.** Booking reference, QR code, add-to-calendar, print, cancel — and **See the view
    from my seat**, which reopens the hall seated in the booked seat.
 9. **Staff dashboard** (`/staff`, PIN 1234). Live tickets sold, revenue and occupancy per show; type
-   the booking reference to check the customer in at the door. *Reset demo data* restores a fresh,
-   realistic state before the next presentation.
+   the booking reference to check the customer in at the door. Under **Trailers**, upload a video
+   for a film (MP4 or WebM) — it plays in the hall the next time someone sits down there; replace,
+   watch or remove it the same way. *Reset demo data* restores a fresh, realistic state before the
+   next presentation (trailers are kept).
 
 Tips: present from `npm run demo` on a laptop (no reliance on venue Wi-Fi), in Chrome or Edge, with
 the window maximised. Phones work too (drag to look around, pinch to zoom).
@@ -94,7 +96,7 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 | --- | --- | --- |
 | Halls | Hall 1: 280 seats (14 rows × 20); Hall 2: 180 seats (12 × 15); straight rows, side aisles, digital 3D. | Seat counts are from press reports; row-by-row layouts and room dimensions are approximations. Edit `shared/halls.ts` with the surveyed plans — the 3D model, seat map, validation and prices all follow. |
 | Hall interior | A modern black-box design: graphite acoustic panels with a Damascene star lattice, crimson and warm-white light lines, surround speakers, leather seats with cup holders, a masked scope screen without curtains. | A design proposal in the cinema's colours, not a survey. Colours live in `src/three/palette.ts`; the room in `src/three/hall/architecture`. |
-| Trailers | Each now-showing film has a YouTube trailer that plays on the 3D screen when you sit down. The films are fictional, so the links are **stand-ins**: short open movies by the Blender Foundation (Creative Commons Attribution). | Paste the real trailer's YouTube link into the film's `trailer:` in `server/data/catalog.ts` — any link YouTube gives you works (watch, youtu.be share link, embed, Shorts, with `?t=` start time). Restart the server. |
+| Trailers | None ship with the demo (the films are fictional): until a film has one, its hall shows the still. | Upload each film's trailer on the staff page (MP4 with H.264/AAC plays in every browser; WebM works too; up to 500 MB). Files are kept in `data/trailers` as `<film-id>.mp4` — copying a file there and restarting works as well. |
 | Premium seats | A "sweet spot" zone priced higher. | The cinema currently sells one flat price. Delete the `zones` in `shared/halls.ts` to sell every seat at one price. |
 | Prices | Standard 750, premium 1,000 new Syrian pounds; +100 for 3D glasses. | Based on the published 75,000 old-pound (750 new) ticket and 10,000 old (100 new) 3D glasses. Edit `server/data/pricing.ts`. |
 | Show times | 1:30, 3:45, 6:00, 8:15, 10:30 PM (Hall 1) and 1:45, 3:30, 5:15, 7:30, 9:45 PM (Hall 2). | Mirrors the cinema's published weekly schedule. Edit `server/data/schedule.ts`. |
@@ -132,14 +134,13 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 - **The screen** behaves like a real one: the house lights wash out the pre-show picture, the
   projector is brightest in the middle, black velour masking frames the picture and glides in to
   frame a 16:9 trailer on the 2.39:1 scope screen, and the picture's light flickers across the room.
-- **The trailer on the 3D screen.** A YouTube video cannot be drawn into WebGL (the player is a
-  cross-origin iframe), so the official YouTube player sits *behind* a transparent canvas, placed
-  with a CSS 3D transform computed from the same camera (three's `CSS3DRenderer`) so it lines up with
-  the screen exactly. The screen's shader opens a window onto it; everything in front of the screen
-  stays opaque, so heads in the rows ahead hide the picture as they would in the hall. The player loads
-  during the fly-in (privacy-enhanced `youtube-nocookie.com` mode), starts once you are seated,
-  pauses when you stand, and falls back to muted playback plus a "click for sound" button where the
-  browser blocks sound. If YouTube cannot be reached, the still stays on screen.
+- **The trailer on the 3D screen.** Staff upload a video per film; the server streams it to disk,
+  checks by its first bytes that it really is an MP4 or WebM, and serves it with range requests so
+  playback starts at once. When a customer sits down, a hidden `<video>` plays it into a WebGL
+  texture on the screen — so heads in the rows ahead hide the picture as they would in the hall, and
+  the screen light takes the picture's measured colour and brightness. It starts during the
+  fly-in's last moment, pauses when you stand and picks up where it left off; where the browser
+  blocks sound it plays muted with a one-click *hear the trailer* button.
 - **Performance:** all seats of a hall are drawn with a handful of instanced meshes (a few draw
   calls whatever the size), the resolution adapts to the GPU, and the 3D engine is loaded only when a
   hall is opened. Without WebGL the accessible 2D seat map takes over.
@@ -147,12 +148,12 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 ### Project layout
 
 ```
-shared/            hall geometry, halls, DTO types, business rules, YouTube links (client and server)
+shared/            hall geometry, halls, DTO types, business rules (used by client and server)
 server/            Express API, SQLite (node:sqlite), live seat stream, seeding, tests
   data/            catalogue, schedule and pricing — edit these to change the programme
 src/
   pages/           Home, Film, Seats (3D), Checkout, Ticket, My tickets, Staff
-  three/           3D hall: architecture, screen & lighting, seats, camera rig, trailer projection
+  three/           3D hall: architecture, screen & lighting, seats, camera rig, trailer playback
   store/booking.ts the seat-selection state machine (holds, live updates, camera mode)
   i18n/            Arabic and English dictionaries (typed: a missing key fails the build)
 docs/openapi.yaml  the HTTP contract
@@ -170,9 +171,12 @@ public/            film artwork, favicon
 | `ADMIN_PIN` | `1234` | Staff dashboard PIN |
 | `DB_FILE` | `data/cinema.db` | SQLite database file |
 | `SEED_BOOKINGS` | `1` | Generate sample bookings (`0` = start with empty halls) |
+| `TRAILERS_DIR` | `data/trailers` | Folder for the trailer videos uploaded on the staff page |
+| `TRAILER_MAX_MB` | `500` | Largest trailer upload accepted, in megabytes |
 
 `npm run db:reset` deletes the database and rebuilds it from the code (films, halls, schedule,
-sample bookings). The staff dashboard's *Reset demo data* does the same without a restart.
+sample bookings). The staff dashboard's *Reset demo data* does the same without a restart. Neither
+touches the uploaded trailers.
 
 ---
 
@@ -200,7 +204,7 @@ sample bookings). The staff dashboard's *Reset demo data* does the same without 
 | Server | Node + Express 5 | Simple, well understood, easy to host anywhere |
 | Database | SQLite (built into Node) | Zero setup for the demo; a seat-level unique index prevents double booking. Swap for PostgreSQL in production |
 | Live updates | Server-Sent Events | One-way push of seat changes; works through proxies, auto-reconnects |
-| Trailers | YouTube IFrame Player API (privacy-enhanced mode) + three's CSS3DRenderer | Distributors already publish trailers on YouTube; its player handles streaming, quality and rights, so there is nothing to host. Loaded only when someone sits down |
+| Trailers | Uploaded video files, played with HTML5 video into a three.js `VideoTexture` | The cinema's own files: no third-party service, works offline, and the frames can light the 3D room. Loaded only when someone sits down |
 | Fonts | Alexandria, IBM Plex Sans Arabic, IBM Plex Mono — bundled | Excellent Arabic and Latin; no Google Fonts dependency (unreliable from Syria) |
 
 ---

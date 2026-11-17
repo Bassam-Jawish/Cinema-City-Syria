@@ -6,23 +6,18 @@
  * programme, edit this file (and drop real posters into public/posters and public/backdrops),
  * then run `npm run db:reset`.
  *
- * TRAILERS play on the hall's screen when a customer sits down to preview a seat. Paste any link
- * YouTube gives you (Share button, address bar, embed or Shorts; a start time like ?t=42 is kept).
- * Because these films are invented, each now-showing film links a short open movie by the Blender
- * Foundation (Creative Commons Attribution) as a STAND-IN — replace it with the film's real trailer.
- * For a scope trailer that YouTube shows letterboxed (black bars above and below the picture), pass
- * `{ aspect: 2.39 }` so the hall's masking frames the picture instead of the bars.
+ * Trailers are not set here: staff upload a video per film on the box-office page (/staff), and
+ * it plays on the hall's screen when a customer sits down (see server/trailers.ts).
  */
-import type { Movie, Trailer } from '../../shared/types';
-import { youtubeTrailer } from '../../shared/youtube';
+import type { Movie } from '../../shared/types';
 
-type CatalogMovie = Omit<Movie, 'poster' | 'backdrop' | 'trailer'> & { trailer?: Trailer };
+type CatalogMovie = Omit<Movie, 'poster' | 'backdrop' | 'trailer'>;
 
 const withArt = (movie: CatalogMovie): Movie => ({
   ...movie,
   poster: `/posters/${movie.id}.svg`,
   backdrop: `/backdrops/${movie.id}.svg`,
-  trailer: movie.trailer ?? null,
+  trailer: null,
 });
 
 const nowShowing: CatalogMovie[] = [
@@ -51,8 +46,6 @@ const nowShowing: CatalogMovie[] = [
     score: 8.6,
     accent: '#E8A33D',
     featured: true,
-    // Stand-in: “Sintel”, Blender Foundation (CC BY). Scope, letterboxed by YouTube.
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=eRsGyueVLvQ', { aspect: 2.35 }),
   },
   {
     id: 'the-silent-orbit',
@@ -79,8 +72,6 @@ const nowShowing: CatalogMovie[] = [
     score: 8.1,
     accent: '#3EC6D0',
     featured: true,
-    // Stand-in: “Tears of Steel”, Blender Foundation (CC BY). Scope, letterboxed by YouTube.
-    trailer: youtubeTrailer('https://youtu.be/R6MlUcmOul8', { aspect: 2.4 }),
   },
   {
     id: 'jasmine-street',
@@ -107,8 +98,6 @@ const nowShowing: CatalogMovie[] = [
     score: 8.8,
     accent: '#F08CA0',
     featured: true,
-    // Stand-in: “Spring”, Blender Animation Studio (CC BY).
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=WhWc3b3KhnY'),
   },
   {
     id: 'rooftop-kings',
@@ -135,8 +124,6 @@ const nowShowing: CatalogMovie[] = [
     score: 7.7,
     accent: '#FF7A45',
     featured: false,
-    // Stand-in: “Agent 327: Operation Barbershop”, Blender Animation Studio (CC BY).
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=mN0zPOpADL4'),
   },
   {
     id: 'iron-tide',
@@ -163,8 +150,6 @@ const nowShowing: CatalogMovie[] = [
     score: 7.9,
     accent: '#4C8DF6',
     featured: false,
-    // Stand-in: “Charge”, Blender Studio (CC BY).
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=UXqq0ZvbOnk'),
   },
   {
     id: 'noor-and-the-paper-dragon',
@@ -191,8 +176,6 @@ const nowShowing: CatalogMovie[] = [
     score: 8.3,
     accent: '#FFD23F',
     featured: false,
-    // Stand-in: “Big Buck Bunny”, Blender Foundation (CC BY).
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=aqz-KE-bpKQ'),
   },
   {
     id: 'the-whisper-below',
@@ -219,8 +202,6 @@ const nowShowing: CatalogMovie[] = [
     score: 7.2,
     accent: '#9B6BFF',
     featured: false,
-    // Stand-in: “Sprite Fright”, Blender Studio (CC BY).
-    trailer: youtubeTrailer('https://youtu.be/_cMxraX_5RE'),
   },
   {
     id: 'midnight-in-aleppo',
@@ -247,8 +228,6 @@ const nowShowing: CatalogMovie[] = [
     score: 8.4,
     accent: '#E23E57',
     featured: false,
-    // Stand-in: “Cosmos Laundromat”, Blender Institute (CC BY).
-    trailer: youtubeTrailer('https://www.youtube.com/watch?v=Y-rmzh0PI3c'),
   },
 ];
 

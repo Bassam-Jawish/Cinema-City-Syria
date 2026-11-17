@@ -38,7 +38,6 @@ export const seats = {
     soundOff: 'Trailer sound: off',
   },
   trailer: {
-    frameTitle: 'Trailer: {title}',
     soundPrompt: 'Click to hear the trailer',
     soundPromptTouch: 'Tap to hear the trailer',
     soundPromptSub: 'Your browser started it without sound',

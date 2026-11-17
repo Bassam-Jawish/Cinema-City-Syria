@@ -7,12 +7,10 @@
  *   - Black velour masking frames the picture. The side masking glides in to frame a narrower
  *     picture (a 16:9 trailer on this 2.39:1 scope screen) and back out for the film's still.
  *   - Light spills onto the masking and the front of the room; in the dark a projector beam
- *     crosses the hall.
+ *     crosses the hall, brightening and dimming with the picture.
  *
  * Until someone sits down the screen shows the film's still with a slow drift. Once the trailer
- * plays, the surface cross-fades into the video that TrailerProjection places behind the canvas:
- * it writes a premultiplied colour whose alpha opens a window onto the video, so the picture
- * appears exactly where the screen is visible — heads and seats in front still hide it.
+ * plays (see TrailerScreen) the surface cross-fades into the video's frames.
  */
 import { useTexture } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
@@ -51,12 +49,14 @@ const screenVertex = /* glsl */ `
   }
 `;
 
-// Everything here is in display (sRGB) space, like the canvas and the video it composites with.
+// Everything here is in display (sRGB) space: the still and the video are sampled raw, the output is not converted.
 const screenFragment = /* glsl */ `
   uniform sampler2D uMap;
   uniform float uHasMap;
   uniform vec2 uRepeat;
   uniform vec2 uOffset;
+  uniform sampler2D uVideoMap;
+  uniform float uHasVideo;
   uniform float uBrightness;
   uniform float uAmbient;
   uniform float uVideo;
@@ -78,15 +78,14 @@ const screenFragment = /* glsl */ `
     float light = clamp(uBrightness, 0.0, 1.0) * falloff;
 
     vec3 still = uHasMap > 0.5 ? texture2D(uMap, vUv * uRepeat + uOffset).rgb : vec3(0.0);
+    // The video fills its own picture area; outside it (behind the masking) the projector is dark.
+    vec2 videoUv = (vUv - uVideoRect.xy) / (uVideoRect.zw - uVideoRect.xy);
+    vec3 video = uHasVideo > 0.5 ? texture2D(uVideoMap, clamp(videoUv, 0.0, 1.0)).rgb * inRect(vUv, uVideoRect) : vec3(0.0);
+    vec3 picture = mix(still, video, uVideo);
 
     // The white screen reflects the room: g is how grey "black" looks. Projected light adds on top.
     float g = uAmbient;
-    float spill = (1.0 - g) * light;
-
-    // Premultiplied output over the video behind the canvas:
-    //   final = rgb + (1 - alpha) * video = g + spill * ((1 - uVideo) * still + uVideo * video)
-    float window = uVideo * spill * inRect(vUv, uVideoRect);
-    gl_FragColor = vec4(vec3(g) + (1.0 - uVideo) * spill * still, 1.0 - window);
+    gl_FragColor = vec4(vec3(g) + (1.0 - g) * light * picture, 1.0);
   }
 `;
 
@@ -99,13 +98,13 @@ function createScreenMaterial(): THREE.ShaderMaterial {
       uHasMap: { value: 0 },
       uRepeat: { value: new THREE.Vector2(1, 1) },
       uOffset: { value: new THREE.Vector2(0, 0) },
+      uVideoMap: { value: null },
+      uHasVideo: { value: 0 },
       uBrightness: { value: 0.35 },
       uAmbient: { value: 0.1 },
       uVideo: { value: 0 },
       uVideoRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     },
-    // Opaque pass, no blending: the alpha written here is what the page composites the video through.
-    blending: THREE.NoBlending,
     toneMapped: false,
   });
 }
@@ -142,6 +141,8 @@ export function CinemaScreen({ geometry: g }: HallPartProps) {
     u.uBrightness.value = (0.12 + 0.88 * lightState.screen) * flicker;
     u.uAmbient.value = byHouse(0.006, 0.07);
     u.uVideo.value = screenState.video;
+    u.uVideoMap.value = screenState.videoTexture;
+    u.uHasVideo.value = screenState.videoTexture ? 1 : 0;
     const picture = pictureRect(screen, screenState.videoAspect);
     const hx = picture.width / screen.width / 2;
     const hy = picture.height / screen.height / 2;
@@ -252,8 +253,7 @@ function ScreenHalo({ geometry: g, accent }: HallPartProps & { accent: string })
   useFrame(() => {
     const picture = pictureRect(screen, screenState.aspect);
     mesh.current?.scale.set(picture.width * 1.4, screen.height * 1.9, 1);
-    const level = 1 + screenState.video * (screenState.level - 0.6) * 0.8;
-    if (material.current) material.current.opacity = (0.04 + (0.26 * (lightState.screen - 0.35)) / 0.65) * level;
+    if (material.current) material.current.opacity = (0.04 + (0.26 * (lightState.screen - 0.35)) / 0.65) * screenState.light;
   });
   return (
     <mesh ref={mesh} position={[0, screen.center[1], -0.02]}>
@@ -374,8 +374,7 @@ function ProjectorBeam({ geometry: g, accent }: HallPartProps & { accent: string
   const shapedFor = useRef(-1);
   useFrame(({ clock }) => {
     const dark = 1 - lightState.house;
-    const level = 1 + screenState.video * (screenState.level - 0.6) * 0.7;
-    material.uniforms.uOpacity.value = 0.11 * dark * dark * level;
+    material.uniforms.uOpacity.value = 0.11 * dark * dark * screenState.light;
     material.uniforms.uTime.value = clock.elapsedTime;
     if (mesh.current) mesh.current.visible = dark > 0.02;
     if (Math.abs(screenState.aspect - shapedFor.current) > 1e-3) {

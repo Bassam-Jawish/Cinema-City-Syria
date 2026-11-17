@@ -39,7 +39,6 @@ export const seats: typeof en = {
     soundOff: 'صوت الإعلان: مكتوم',
   },
   trailer: {
-    frameTitle: 'الإعلان الترويجي: {title}',
     soundPrompt: 'انقر لتسمع صوت الإعلان',
     soundPromptTouch: 'المس لتسمع صوت الإعلان',
     soundPromptSub: 'بدأ متصفحك تشغيله بلا صوت',

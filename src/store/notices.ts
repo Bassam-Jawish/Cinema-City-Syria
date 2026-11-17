@@ -20,7 +20,9 @@ export type NoticeKey =
   | 'copied'
   | 'demoReset'
   | 'checkedIn'
-  | 'wrongPin';
+  | 'wrongPin'
+  | 'trailerUploaded'
+  | 'trailerRemoved';
 
 export interface Notice {
   id: number;

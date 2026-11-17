@@ -156,6 +156,8 @@ export const common: typeof en = {
     demoReset: 'أُعيد ضبط بيانات العرض التجريبي.',
     checkedIn: 'تم تسجيل دخول التذكرة.',
     wrongPin: 'الرمز غير صحيح.',
+    trailerUploaded: 'رُفع الإعلان الترويجي لفيلم {title}.',
+    trailerRemoved: 'حُذف الإعلان الترويجي.',
   },
   errors: {
     title: 'حدث خطأ',

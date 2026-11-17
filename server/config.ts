@@ -10,6 +10,8 @@
  *   HOLD_MINUTES   How long selected seats stay reserved for a customer (default DEFAULT_HOLD_MINUTES).
  *   ADMIN_PIN      Staff PIN for /api/admin (default 1234 — fine for a demo, nothing more).
  *   SEED_BOOKINGS  Generate demo bookings so the halls look lived-in (default on; 0/false/off/no disables).
+ *   TRAILERS_DIR   Folder for the trailer videos staff upload (default data/trailers in the project).
+ *   TRAILER_MAX_MB Largest trailer upload accepted, in megabytes (default DEFAULT_TRAILER_MAX_MB).
  *   SERVE_STATIC   Serve the built client from dist/ (default: on when dist/index.html exists, except in
  *                  development, where Vite serves the client).
  *   TRUST_PROXY    Express "trust proxy" setting, only for a deployment behind a reverse proxy that sets
@@ -19,11 +21,12 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_HOLD_MINUTES } from '../shared/constants';
+import { DEFAULT_HOLD_MINUTES, DEFAULT_TRAILER_MAX_MB } from '../shared/constants';
 
 /** The project root: the folder that holds package.json. */
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_DB_FILE = path.join(PROJECT_ROOT, 'data', 'cinema.db');
+export const DEFAULT_TRAILERS_DIR = path.join(PROJECT_ROOT, 'data', 'trailers');
 export const DIST_DIR = path.join(PROJECT_ROOT, 'dist');
 export const DEFAULT_PORT = 4000;
 export const DEFAULT_ADMIN_PIN = '1234';
@@ -41,6 +44,10 @@ export interface ServerConfig {
   staticDir: string | null;
   /** Express "trust proxy" value (false = ignore X-Forwarded-For). */
   trustProxy: boolean | number | string;
+  /** Absolute path of the trailer video folder. */
+  trailersDir: string;
+  /** Largest trailer upload, in bytes. */
+  trailerMaxBytes: number;
 }
 
 export class ConfigError extends Error {
@@ -110,5 +117,7 @@ export function loadConfig(env: Env = process.env, dev = process.argv.includes('
     seedBookings: flag(env, 'SEED_BOOKINGS', true),
     staticDir: serveStatic ? DIST_DIR : null,
     trustProxy: trustProxyFrom(env),
+    trailersDir: raw(env, 'TRAILERS_DIR') ? path.resolve(raw(env, 'TRAILERS_DIR')!) : DEFAULT_TRAILERS_DIR,
+    trailerMaxBytes: numberIn(env, 'TRAILER_MAX_MB', DEFAULT_TRAILER_MAX_MB, 1, 4096, false) * 1024 * 1024,
   };
 }

@@ -6,6 +6,9 @@ export const MAX_SEATS_PER_BOOKING = 8;
 /** How long selected seats stay reserved for a customer who has not checked out yet. */
 export const DEFAULT_HOLD_MINUTES = 10;
 
+/** Largest trailer video staff can upload, in megabytes (server setting TRAILER_MAX_MB). */
+export const DEFAULT_TRAILER_MAX_MB = 500;
+
 /** Number of calendar days (starting today) for which showtimes are published. */
 export const SCHEDULE_DAYS = 7;
 

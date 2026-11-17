@@ -5,18 +5,20 @@
  * createApp() is used by server/index.ts and by the integration tests, which pass an in-memory
  * database and a fake clock.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { clearInterval, setInterval } from 'node:timers';
 import express, { type Express, type Request, type RequestHandler } from 'express';
-import { ADMIN_PIN_HEADER, DEFAULT_HOLD_MINUTES, SESSION_HEADER } from '../shared/constants';
+import { ADMIN_PIN_HEADER, DEFAULT_HOLD_MINUTES, DEFAULT_TRAILER_MAX_MB, SESSION_HEADER } from '../shared/constants';
 import { DEFAULT_ADMIN_PIN } from './config';
 import { openDatabase, prepareDatabase } from './db';
-import { HttpError, apiNotFound, errorBody, errorHandler, tooManyRequests } from './errors';
+import { HttpError, apiNotFound, errorBody, errorHandler, notFound, tooManyRequests } from './errors';
 import { LiveHub } from './live';
 import { FixedWindowLimiter, type RateLimitRule } from './rate-limit';
 import { BookingService } from './service';
+import { TrailerStore } from './trailers';
 import {
   adminBookingsQuerySchema,
   bookingRequestSchema,
@@ -53,6 +55,13 @@ export interface AppOptions {
   trustProxy?: boolean | number | string;
   /** Keep-alive comment interval on seat streams (ms; 0 = never). */
   pingIntervalMs?: number;
+  /**
+   * Folder for uploaded trailer videos. Default: a fresh temporary folder that close() deletes
+   * (what tests want); the server passes data/trailers.
+   */
+  trailersDir?: string;
+  /** Largest trailer upload accepted, in bytes. */
+  trailerMaxBytes?: number;
 }
 
 export interface AppContext {
@@ -60,7 +69,9 @@ export interface AppContext {
   service: BookingService;
   hub: LiveHub;
   db: DatabaseSync;
-  /** Stops the sweeper, ends every seat stream and closes the database. */
+  /** Folder holding the uploaded trailer videos. */
+  trailersDir: string;
+  /** Stops the sweeper, ends every seat stream, closes the database (and deletes a temporary trailer folder). */
   close(): void;
 }
 
@@ -95,6 +106,11 @@ export function createApp(options: AppOptions): AppContext {
   const db = typeof options.db === 'string' ? openDatabase(options.db) : prepareDatabase(options.db);
   const log = typeof options.log === 'function' ? options.log : options.log === false ? null : (line: string) => console.log(line);
   const hub = new LiveHub({ pingIntervalMs: options.pingIntervalMs });
+  const ownsTrailersDir = options.trailersDir === undefined;
+  const trailersDir = options.trailersDir ?? mkdtempSync(path.join(tmpdir(), 'ccs-trailers-'));
+  const dropTrailersDir = () => {
+    if (ownsTrailersDir) rmSync(trailersDir, { recursive: true, force: true });
+  };
 
   let service: BookingService;
   try {
@@ -105,10 +121,12 @@ export function createApp(options: AppOptions): AppContext {
       holdMinutes: options.holdMinutes ?? DEFAULT_HOLD_MINUTES,
       adminPin: options.adminPin ?? DEFAULT_ADMIN_PIN,
       seedBookings: options.seedBookings ?? true,
+      trailers: new TrailerStore(trailersDir, options.trailerMaxBytes ?? DEFAULT_TRAILER_MAX_MB * 1024 * 1024),
     });
   } catch (error) {
     hub.closeAll();
     if (ownsConnection && db.isOpen) db.close();
+    dropTrailersDir();
     throw error;
   }
 
@@ -179,6 +197,20 @@ export function createApp(options: AppOptions): AppContext {
   });
   api.get('/halls', (_req, res) => {
     res.json(service.listHalls());
+  });
+
+  // ── Trailers ──
+  // Range requests are answered (206), so the hall can start playing and seek before the whole file arrives.
+  api.get('/trailers/:file', (req, res, next) => {
+    const file = service.trailerFile(param(req, 'file'));
+    if (!file) throw notFound('No such trailer');
+    // Trailer URLs carry a version (?v=…) that changes with every upload, so they can be cached for good.
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type(file.type);
+    res.sendFile(file.path, (error) => {
+      // A viewer who seeks or leaves aborts the transfer: that is not a server error.
+      if (error && !res.headersSent) next(error);
+    });
   });
 
   // ── Seats ──
@@ -266,6 +298,16 @@ export function createApp(options: AppOptions): AppContext {
     service.resetDemo();
     res.json({ ok: true });
   });
+  // The body is the raw video file (Content-Type video/mp4 or video/webm), streamed to disk.
+  api.post('/admin/movies/:movieId/trailer', limited, requireAdmin, async (req, res) => {
+    const declared = Number(req.get('content-length'));
+    const trailer = await service.uploadTrailer(param(req, 'movieId'), req, Number.isFinite(declared) ? declared : undefined);
+    res.status(201).json({ trailer });
+  });
+  api.delete('/admin/movies/:movieId/trailer', limited, requireAdmin, (req, res) => {
+    service.removeTrailer(param(req, 'movieId'));
+    res.json({ ok: true });
+  });
 
   api.use(apiNotFound);
   app.use('/api', api);
@@ -322,12 +364,14 @@ export function createApp(options: AppOptions): AppContext {
     service,
     hub,
     db,
+    trailersDir,
     close() {
       if (closed) return;
       closed = true;
       if (sweeper) clearInterval(sweeper);
       hub.closeAll();
       if (db.isOpen) db.close();
+      dropTrailersDir();
     },
   };
 }

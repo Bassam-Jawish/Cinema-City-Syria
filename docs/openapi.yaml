@@ -81,6 +81,25 @@ paths:
         '200':
           description: '`{ halls: HallSummary[] }`'
 
+  /api/trailers/{file}:
+    get:
+      tags: [Catalogue]
+      summary: Stream a film's trailer video
+      description: |
+        `file` is `<film id>.mp4` or `<film id>.webm`; use the `trailer.url` a film carries (`Movie.trailer`,
+        null when the film has none), which adds a `?v=` version that changes with every upload, so the
+        response is cacheable for good. Range requests are answered with 206 Partial Content.
+      parameters:
+        - { name: file, in: path, required: true, schema: { type: string } }
+        - { name: Range, in: header, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: The video (video/mp4 or video/webm)
+        '206':
+          description: The requested byte range
+        '404':
+          description: NOT_FOUND
+
   /api/showtimes/{showtimeId}:
     get:
       tags: [Seats]
@@ -336,3 +355,47 @@ paths:
           description: '`{ ok: true }`'
         '401':
           description: UNAUTHORIZED
+
+  /api/admin/movies/{movieId}/trailer:
+    post:
+      tags: [Admin]
+      summary: Upload a film's trailer
+      description: |
+        The request body is the video file itself (not a form): an MP4 (H.264/AAC plays in every
+        browser) or a WebM. It streams to disk and replaces the film's previous trailer once complete.
+        The file's first bytes decide whether it is a video, not the Content-Type. Larger than the
+        server limit (TRAILER_MAX_MB, default 500) → 413 FILE_TOO_LARGE with `{ maxBytes, maxMegabytes }`.
+        Returns 201 `{ trailer: Trailer }`; every film payload carries it from then on.
+      parameters:
+        - { name: movieId, in: path, required: true, schema: { type: string } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          video/mp4: { schema: { type: string, format: binary } }
+          video/webm: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: '`{ trailer: Trailer }`'
+        '401':
+          description: UNAUTHORIZED
+        '404':
+          description: NOT_FOUND (no such film)
+        '413':
+          description: FILE_TOO_LARGE
+        '415':
+          description: UNSUPPORTED_FILE (not an MP4 or WebM video)
+    delete:
+      tags: [Admin]
+      summary: Remove a film's trailer
+      description: The hall shows the film's still again. Removing a trailer that does not exist also succeeds.
+      parameters:
+        - { name: movieId, in: path, required: true, schema: { type: string } }
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: '`{ ok: true }`'
+        '401':
+          description: UNAUTHORIZED
+        '404':
+          description: NOT_FOUND (no such film)

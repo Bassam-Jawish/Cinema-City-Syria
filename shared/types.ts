@@ -64,24 +64,26 @@ export interface Movie {
   /** Signature colour of the film (#rrggbb) — tints glows and the light the 3D screen casts. */
   accent: string;
   featured: boolean;
-  /** Played on the hall's screen when a customer sits down to preview a seat. null = show the still. */
+  /**
+   * Video played on the hall's screen when a customer sits down to preview a seat, uploaded by
+   * staff on the box-office page. null = no trailer yet: the screen shows the still.
+   */
   trailer: Trailer | null;
 }
 
-/** A trailer on YouTube (see shared/youtube.ts, which builds these from an ordinary YouTube link). */
+/** A trailer video file uploaded by staff (see server/trailers.ts). */
 export interface Trailer {
-  /** The link as staff entered it. */
+  /** Where the video is served, versioned so a replaced file is never stale in a cache. */
   url: string;
-  /** The YouTube video id parsed from the link. */
-  youtubeId: string;
-  /** Second the trailer starts at. */
-  start: number;
-  /**
-   * Shape of the picture inside YouTube's 16:9 frame: 1.778 when it fills the frame, about 2.39
-   * for a scope trailer letterboxed with black bars. The hall's masking frames exactly this.
-   */
-  aspect: number;
+  /** video/mp4 or video/webm. */
+  type: TrailerType;
+  /** File size in bytes. */
+  size: number;
+  /** When the file was uploaded (ISO-8601). */
+  updatedAt: string;
 }
+
+export type TrailerType = 'video/mp4' | 'video/webm';
 
 // ───────────────────────────── Halls ─────────────────────────────
 
@@ -282,6 +284,8 @@ export const ERROR_CODES = [
   'BOOKING_NOT_CANCELLABLE',
   'BOOKING_NOT_CHECKINABLE',
   'RATE_LIMITED',
+  'FILE_TOO_LARGE',
+  'UNSUPPORTED_FILE',
   'INTERNAL',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

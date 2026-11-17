@@ -6,6 +6,7 @@ import {
   dayParts,
   formatCountdown,
   formatDuration,
+  formatMegabytes,
   formatPhone,
   formatPrice,
   formatTime,
@@ -15,6 +16,12 @@ import {
 const strip = (s: string) => s.replace(/[⁦-⁩]/g, '');
 
 describe('formatting', () => {
+  it('formats file sizes in megabytes with Western digits in both languages', () => {
+    expect(formatMegabytes(2432352, 'en')).toBe('2.3');
+    expect(formatMegabytes(2432352, 'ar')).toBe('2.3');
+    expect(formatMegabytes(512 * 1024 * 1024, 'en')).toBe('512');
+  });
+
   it('formats prices with Western digits in both languages', () => {
     expect(strip(formatPrice(750, 'ar'))).toBe('750 ل.س');
     expect(strip(formatPrice(1250, 'ar'))).toBe('1,250 ل.س');

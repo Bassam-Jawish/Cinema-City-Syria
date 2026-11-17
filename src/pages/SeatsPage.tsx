@@ -245,7 +245,7 @@ function TrailerSoundButton() {
   const status = useTrailer((s) => s.status);
   const audible = useTrailer(trailerAudible);
   const setMuted = useTrailer((s) => s.setMuted);
-  if (status === 'none' || status === 'unavailable' || status === 'error') return null;
+  if (status === 'none' || status === 'error') return null;
   return (
     <IconButton
       variant="glass"

@@ -44,12 +44,15 @@ export function sniffVideo(head: Uint8Array): Extension | null {
 }
 
 export class TrailerStore {
+  /** Absolute path of the folder. */
+  readonly dir: string;
   private readonly files = new Map<string, StoredTrailer>();
 
   constructor(
-    readonly dir: string,
+    folder: string,
     readonly maxBytes: number,
   ) {
+    const dir = (this.dir = path.resolve(folder));
     mkdirSync(dir, { recursive: true });
     for (const name of readdirSync(dir)) {
       // Leftovers of uploads interrupted by a crash or restart.
@@ -100,26 +103,39 @@ export class TrailerStore {
     const temp = path.join(this.dir, `${TEMP_PREFIX}${randomUUID()}`);
     let size = 0;
     let head = Buffer.alloc(0);
+    let extension: Extension | null = null;
     const limit = this.maxBytes;
     const meter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         size += chunk.length;
-        if (head.length < 16) head = Buffer.concat([head, chunk.subarray(0, 16 - head.length)]);
-        if (size > limit) callback(new SizeLimitError());
-        else callback(null, chunk);
+        if (size > limit) {
+          callback(new UploadRefused('too-large'));
+          return;
+        }
+        // Decide from the first bytes, so a file that is not a video is refused at once, not after it all arrived.
+        if (!extension) {
+          head = Buffer.concat([head, chunk.subarray(0, 16 - Math.min(16, head.length))]);
+          if (head.length >= 8) {
+            extension = sniffVideo(head);
+            if (!extension) {
+              callback(new UploadRefused('not-video'));
+              return;
+            }
+          }
+        }
+        callback(null, chunk);
       },
     });
     try {
       await pipeline(body, meter, createWriteStream(temp));
     } catch (error) {
       rmSync(temp, { force: true });
-      if (error instanceof SizeLimitError) throw this.tooLarge();
+      if (error instanceof UploadRefused) throw error.reason === 'too-large' ? this.tooLarge() : notVideo();
       throw error;
     }
-    const extension = size > 0 ? sniffVideo(head) : null;
     if (!extension) {
       rmSync(temp, { force: true });
-      throw new HttpError(415, 'UNSUPPORTED_FILE', 'Upload an MP4 or WebM video file', { accepted: Object.values(EXTENSIONS) });
+      throw notVideo();
     }
     const target = path.join(this.dir, `${movieId}.${extension}`);
     renameSync(temp, target);
@@ -146,9 +162,13 @@ export class TrailerStore {
   }
 }
 
-class SizeLimitError extends Error {
-  constructor() {
-    super('Upload exceeds the size limit');
-    this.name = 'SizeLimitError';
+const notVideo = (): HttpError =>
+  new HttpError(415, 'UNSUPPORTED_FILE', 'Upload an MP4 or WebM video file', { accepted: Object.values(EXTENSIONS) });
+
+/** Stops an upload mid-stream. */
+class UploadRefused extends Error {
+  constructor(readonly reason: 'too-large' | 'not-video') {
+    super(`Upload refused: ${reason}`);
+    this.name = 'UploadRefused';
   }
 }

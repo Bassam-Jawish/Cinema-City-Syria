@@ -4,7 +4,9 @@
  * The video loads when the customer heads for a seat (during the camera's fly-in) and starts once
  * they are seated: the picture cross-fades in from the still as the house lights go down, the
  * masking closes in to frame its shape, and the sound rises with it. Standing up fades it out and
- * pauses it; sitting down again (in any seat) carries on where it stopped.
+ * pauses it; sitting down again (in any seat) carries on where it stopped. Interruptions — the
+ * system pausing it, a hidden tab, a network drop — are recovered from (see TrailerVideo), and a
+ * trailer staff replace meanwhile takes over (the hall is keyed by the trailer's URL).
  *
  * This component only directs: the frames reach the screen through `screenState.videoTexture`
  * (see CinemaScreen), and the light the picture throws through `screenState.light` / `tint`.
@@ -27,6 +29,17 @@ export interface TrailerScreenProps {
 
 /** Seated "enough" to roll the trailer: the camera is nearly in the seat and the lights are going down. */
 const SEATED_BLEND = 0.6;
+/** Least time between two checks with the server that the trailer is still the current one (ms). */
+const RECHECK_EVERY_MS = 10_000;
+let checkedAt = Number.NEGATIVE_INFINITY;
+
+/** A trailer that fails to load may have been replaced or removed: the showtime says which is current. */
+function recheckTrailer(): void {
+  const now = performance.now();
+  if (now - checkedAt < RECHECK_EVERY_MS) return;
+  checkedAt = now;
+  void useBooking.getState().refresh();
+}
 
 export function TrailerScreen({ geometry: g, trailer }: TrailerScreenProps) {
   const player = useRef<TrailerVideo | null>(null);
@@ -50,6 +63,7 @@ export function TrailerScreen({ geometry: g, trailer }: TrailerScreenProps) {
       muted: useTrailer.getState().muted,
       onStatus: (status) => useTrailer.setState({ status }),
       onSoundBlocked: (soundBlocked) => useTrailer.setState({ soundBlocked }),
+      onFailure: recheckTrailer,
     });
     attachTrailerControls({ setMuted: (muted) => created.setMuted(muted) });
     useTrailer.setState({ status: 'loading' });

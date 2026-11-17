@@ -18,6 +18,7 @@ import type {
   ScheduleDay,
   ShowtimeDetail,
   Trailer,
+  TrailerLimits,
 } from '@shared/types';
 import { getSessionId } from './session';
 
@@ -154,6 +155,10 @@ export const api = {
 
     /** Wipes customer bookings and holds and re-seeds the demo data. */
     resetDemo: (pin: string) => request<{ ok: true }>('POST', '/admin/reset', { adminPin: pin }),
+
+    /** The largest trailer the server accepts (its TRAILER_MAX_MB setting) and the video types it takes. */
+    trailerLimits: (pin: string, signal?: AbortSignal) =>
+      request<TrailerLimits>('GET', '/admin/trailers/limits', { adminPin: pin, signal }),
 
     /**
      * Uploads a video file as the film's trailer, replacing any previous one. The file is sent as

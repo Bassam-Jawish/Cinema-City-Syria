@@ -23,9 +23,9 @@ import {
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { DEFAULT_TRAILER_MAX_MB } from '@shared/constants';
 import { addDays, cinemaDate } from '@shared/time';
 import type { AdminBookingRow, AdminShowtimeRow, Booking, MovieWithShowtimes, ShowtimeStatus } from '@shared/types';
+import { VIDEO_SNIFF_BYTES, sniffVideo } from '@shared/video';
 import { Ltr } from '@/components/common/Bidi';
 import { DateStrip } from '@/components/movie/DateStrip';
 import { Poster } from '@/components/movie/Poster';
@@ -147,7 +147,7 @@ function Dashboard({ pin, onSignOut }: { pin: string; onSignOut: () => void }) {
   const { t } = useI18n();
   const f = useFormat();
   const today = cinemaDate(Date.now());
-  const dates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
+  const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
   const [date, setDate] = useState(today);
   const [query, setQuery] = useState('');
   const q = useDebounced(query.trim(), 300);
@@ -155,6 +155,12 @@ function Dashboard({ pin, onSignOut }: { pin: string; onSignOut: () => void }) {
   const [resetting, setResetting] = useState(false);
 
   const overview = useAsync((signal) => api.admin.overview(pin, date, signal), [pin, date]);
+  // The week, then any later days already on sale (advance booking) — kept while another day loads.
+  const [onSale, setOnSale] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (overview.data) setOnSale(overview.data.days);
+  }, [overview.data]);
+  const dates = onSale && onSale[0] === today ? onSale : week;
   const bookings = useAsync(
     (signal) => api.admin.bookings(pin, { date: q ? undefined : date, q: q || undefined, limit: 60 }, signal),
     [pin, date, q],
@@ -482,8 +488,11 @@ function CheckInPanel({ pin, onDone }: { pin: string; onDone: () => void }) {
 
 /** Upload, replace or remove the video each film plays on the hall's screen when a customer sits down. */
 function TrailersPanel({ pin }: { pin: string }) {
-  const { t, L } = useI18n();
+  const { t, L, lang } = useI18n();
   const movies = useAsync((signal) => api.listMovies(signal), []);
+  // What the server really accepts (its TRAILER_MAX_MB setting), so a file can be checked before it is sent.
+  const limits = useAsync((signal) => api.admin.trailerLimits(pin, signal), [pin]);
+  const maxBytes = limits.data?.maxBytes ?? null;
   const [removeTarget, setRemoveTarget] = useState<MovieWithShowtimes | null>(null);
   const [removing, setRemoving] = useState(false);
 
@@ -508,11 +517,25 @@ function TrailersPanel({ pin }: { pin: string }) {
         <Clapperboard size={20} className="text-velvet-bright" aria-hidden="true" />
         {t('admin.trailers.title')}
       </h2>
-      <p className="mt-1 max-w-3xl text-sm text-sand">{t('admin.trailers.body', { max: DEFAULT_TRAILER_MAX_MB })}</p>
+      <p className="mt-1 max-w-3xl text-sm text-sand">{t('admin.trailers.body')}</p>
+      <p className="mt-1 text-xs text-dust" aria-live="polite">
+        {maxBytes !== null
+          ? t('admin.trailers.limit', { max: formatMegabytes(maxBytes, lang) })
+          : limits.error
+            ? t('admin.trailers.limitUnknown')
+            : ' '}
+      </p>
       {movies.data ? (
         <ul className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {movies.data.movies.map((movie) => (
-            <TrailerCard key={movie.id} pin={pin} movie={movie} onChanged={movies.reload} onRemove={() => setRemoveTarget(movie)} />
+            <TrailerCard
+              key={movie.id}
+              pin={pin}
+              movie={movie}
+              maxBytes={maxBytes}
+              onChanged={movies.reload}
+              onRemove={() => setRemoveTarget(movie)}
+            />
           ))}
         </ul>
       ) : movies.error ? (
@@ -547,11 +570,14 @@ function TrailersPanel({ pin }: { pin: string }) {
 function TrailerCard({
   pin,
   movie,
+  maxBytes,
   onChanged,
   onRemove,
 }: {
   pin: string;
   movie: MovieWithShowtimes;
+  /** The server's limit, or null while it is not known (the server still checks). */
+  maxBytes: number | null;
   onChanged: () => void;
   onRemove: () => void;
 }) {
@@ -566,8 +592,28 @@ function TrailerCard({
   // Leaving the page cancels an upload in flight.
   useEffect(() => () => upload.current?.abort(), []);
 
+  const tooLarge = (size: number, max: number) =>
+    t('admin.trailers.tooLarge', { size: formatMegabytes(size, lang), max: formatMegabytes(max, lang) });
+
+  /** The server's own checks, done here first: a wrong file is refused at once instead of after the upload. */
+  const precheck = async (file: File): Promise<string | null> => {
+    if (maxBytes !== null && file.size > maxBytes) return tooLarge(file.size, maxBytes);
+    try {
+      if (!sniffVideo(new Uint8Array(await file.slice(0, VIDEO_SNIFF_BYTES).arrayBuffer()))) return t('admin.trailers.unsupported');
+    } catch {
+      // Unreadable here (e.g. a file moved meanwhile): let the server decide.
+    }
+    return null;
+  };
+
   const send = async (file: File) => {
     setError(null);
+    const refused = await precheck(file);
+    if (refused) {
+      setError(refused);
+      if (input.current) input.current.value = '';
+      return;
+    }
     setProgress(0);
     const controller = new AbortController();
     upload.current = controller;
@@ -579,8 +625,8 @@ function TrailerCard({
       if (failure instanceof DOMException && failure.name === 'AbortError') return;
       const code = errorCodeOf(failure);
       if (code === 'FILE_TOO_LARGE') {
-        const max = (failure as ApiError).details as { maxMegabytes?: number } | undefined;
-        setError(t('admin.trailers.tooLarge', { max: max?.maxMegabytes ?? DEFAULT_TRAILER_MAX_MB }));
+        const max = ((failure as ApiError).details as { maxBytes?: number } | undefined)?.maxBytes;
+        setError(max ? tooLarge(file.size, max) : t('admin.trailers.failed'));
       } else if (code === 'UNSUPPORTED_FILE') {
         setError(t('admin.trailers.unsupported'));
       } else if (code === 'UNAUTHORIZED') {

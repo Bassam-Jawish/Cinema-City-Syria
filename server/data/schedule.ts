@@ -5,7 +5,8 @@
  * Each hall has fixed start times and rotates through its own list of films. The rotation is offset
  * by the date, so a film plays at a different time on different days. Two house rules are then
  * enforced by swapping slots within the hall-day: family films (G, PG) start before 21:00 and
- * 18+ films no earlier than 18:00.
+ * 18+ films no earlier than 18:00. Finally a hall shows one film at a time: a slot that starts
+ * before the previous show is over stays dark (a 2 h 45 film needs more than one 2 h 15 slot).
  */
 import type { SeatType } from '../../shared/hall';
 import { cinemaDateTimeToUtc, daysBetween } from '../../shared/time';
@@ -28,15 +29,17 @@ export interface HallProgramme {
 export const PROGRAMMES: Record<string, HallProgramme> = {
   'hall-1': {
     slots: ['13:30', '15:45', '18:00', '20:15', '22:30'],
-    films: ['the-last-caravan', 'the-silent-orbit', 'iron-tide', 'jasmine-street', 'noor-and-the-paper-dragon'],
+    films: ['avengers-doomsday', 'dune-part-three'],
     threeD: true,
   },
   'hall-2': {
     slots: ['13:45', '15:30', '17:15', '19:30', '21:45'],
-    films: ['rooftop-kings', 'midnight-in-aleppo', 'the-whisper-below', 'noor-and-the-paper-dragon', 'the-silent-orbit'],
+    films: ['dune-part-three', 'avengers-doomsday'],
     threeD: true,
   },
 };
+
+export type Programmes = Readonly<Record<string, HallProgramme>>;
 
 /** Ads and trailers before the feature; a showtime ends this long after the film's running time. */
 export const PRE_SHOW_MINUTES = 15;
@@ -121,30 +124,44 @@ function applyRatingRules(lineup: Movie[], minutes: readonly number[]): void {
 
 /**
  * The showtimes of one calendar day, hall by hall in the order given, each hall in start order.
- * `movies` is the current catalogue; coming-soon films and films not yet released on `date` are skipped.
+ * `movies` is the current catalogue; films not yet released on `date` are skipped.
  */
-export function planDay(date: string, movies: ReadonlyMap<string, Movie>, halls: readonly ScheduleHall[]): PlannedShowtime[] {
+export function planDay(
+  date: string,
+  movies: ReadonlyMap<string, Movie>,
+  halls: readonly ScheduleHall[],
+  programmes: Programmes = PROGRAMMES,
+): PlannedShowtime[] {
   const dayIndex = dayIndexOf(date);
   const planned: PlannedShowtime[] = [];
 
   for (const hall of halls) {
-    const programme = PROGRAMMES[hall.id];
+    const programme = programmes[hall.id];
     if (!programme) continue;
     const films = programme.films
       .map((id) => movies.get(id))
-      .filter((movie): movie is Movie => !!movie && movie.status === 'now_showing' && movie.releaseDate <= date);
+      .filter((movie): movie is Movie => !!movie && movie.releaseDate <= date);
     if (films.length === 0) continue;
 
     const minutes = programme.slots.map(minutesOf);
     const lineup = programme.slots.map((_, slot) => films[mod(slot + dayIndex, films.length)]);
     applyRatingRules(lineup, minutes);
 
+    /** When the hall is free again, in minutes after midnight. */
+    let freeFrom = Number.NEGATIVE_INFINITY;
+    let shown = 0;
     lineup.forEach((movie, slotIndex) => {
       const startMinutes = minutes[slotIndex];
       // A rule no swap could satisfy (e.g. a programme of only family films): leave the slot dark.
       if (!canStartAt(movie, startMinutes)) return;
+      // One film at a time: the previous show is still on.
+      if (startMinutes < freeFrom) return;
+      const runMinutes = movie.durationMin + PRE_SHOW_MINUTES;
+      freeFrom = startMinutes + runMinutes;
       const time = programme.slots[slotIndex];
-      const format: Format = movie.formats.includes('3D') && programme.threeD && mod(slotIndex + dayIndex, 2) === 0 ? '3D' : '2D';
+      // Every other show of a 3D film is in 3D (alternating by day, so each time of day gets both).
+      const format: Format = movie.formats.includes('3D') && programme.threeD && mod(shown + dayIndex, 2) === 0 ? '3D' : '2D';
+      shown++;
       const startsAt = cinemaDateTimeToUtc(date, time).getTime();
       planned.push({
         id: showtimeIdFor(date, hall.id, time),
@@ -154,7 +171,7 @@ export function planDay(date: string, movies: ReadonlyMap<string, Movie>, halls:
         time,
         startMinutes,
         startsAt,
-        endsAt: startsAt + (movie.durationMin + PRE_SHOW_MINUTES) * 60_000,
+        endsAt: startsAt + runMinutes * 60_000,
         format,
         prices: showtimePrices(hall.seatTypes, { format }),
       });

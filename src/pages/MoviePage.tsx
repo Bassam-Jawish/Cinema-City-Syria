@@ -15,7 +15,7 @@ import { useAsync, useDocumentTitle } from '@/lib/hooks';
 
 export default function MoviePage() {
   const { movieId = '' } = useParams();
-  const { t, L } = useI18n();
+  const { t, L, lang } = useI18n();
   const f = useFormat();
   const { data, error, loading, reload } = useAsync((signal) => api.getMovie(movieId, signal), [movieId]);
   const movie = data?.movie;
@@ -35,9 +35,12 @@ export default function MoviePage() {
   if (error && !data) return <ErrorState error={error} notFoundKey="common.errors.movieNotFound" onRetry={reload} />;
   if (!movie) return null;
 
-  const comingSoon = movie.status === 'coming_soon';
   const counts = Object.fromEntries(days.map((d) => [d.date, d.showtimes.filter((s) => s.status !== 'closed').length]));
   const current = days.find((d) => d.date === selectedDay) ?? null;
+  // A coming-soon film has a schedule only once its opening week is on sale (advance booking).
+  const onSale = days.some((d) => d.showtimes.length > 0);
+  const comingSoon = movie.status === 'coming_soon';
+  const opens = f.dateLong(`${movie.releaseDate}T12:00:00Z`);
 
   return (
     <article>
@@ -72,7 +75,7 @@ export default function MoviePage() {
                   {movie.subtitles ? t(`common.movie.subtitled.${movie.subtitles}`) : t('common.movie.noSubtitles')}
                 </span>
               </div>
-              {!comingSoon && (
+              {(!comingSoon || onSale) && (
                 <Button
                   className="mt-7"
                   size="lg"
@@ -90,15 +93,22 @@ export default function MoviePage() {
       <div className="mx-auto grid max-w-7xl gap-12 px-4 pt-6 sm:px-6 lg:grid-cols-[1.5fr_1fr]">
         <section id="showtimes" className="scroll-mt-24">
           <h2 className="mb-5 text-3xl text-cream">{t('movie.showtimes')}</h2>
-          {comingSoon ? (
+          {comingSoon && !onSale ? (
             <div className="surface rounded-3xl p-7">
               <h3 className="text-xl text-cream">{t('movie.comingSoonTitle')}</h3>
-              <p className="mt-2 text-sand">
-                {t('movie.comingSoonBody', { date: f.dateLong(`${movie.releaseDate}T12:00:00Z`) })}
-              </p>
+              <p className="mt-2 text-sand">{t('movie.comingSoonBody', { date: opens })}</p>
             </div>
           ) : (
             <>
+              {comingSoon && (
+                <div className="mb-5 flex items-start gap-3 rounded-2xl border border-marquee/30 bg-marquee/10 p-4">
+                  <CalendarClock size={20} className="mt-0.5 shrink-0 text-marquee-bright" aria-hidden="true" />
+                  <div>
+                    <h3 className="font-semibold text-cream">{t('movie.advanceTitle')}</h3>
+                    <p className="mt-1 text-sm text-cream-200">{t('movie.advanceBody', { date: opens })}</p>
+                  </div>
+                </div>
+              )}
               {selectedDay && (
                 <DateStrip dates={days.map((d) => d.date)} value={selectedDay} onChange={setDay} counts={counts} />
               )}
@@ -116,7 +126,7 @@ export default function MoviePage() {
             <dt className="text-sand">{t('common.movie.director')}</dt>
             <dd className="text-cream">{L(movie.director)}</dd>
             <dt className="text-sand">{t('common.movie.cast')}</dt>
-            <dd className="text-cream">{movie.cast.map((person) => L(person)).join('، ')}</dd>
+            <dd className="text-cream">{movie.cast.map((person) => L(person)).join(lang === 'ar' ? '، ' : ', ')}</dd>
             <dt className="text-sand">{t('common.movie.rating')}</dt>
             <dd className="text-cream">{t(`common.ratings.${movie.rating}`)}</dd>
             <dt className="text-sand">{t('common.movie.duration')}</dt>

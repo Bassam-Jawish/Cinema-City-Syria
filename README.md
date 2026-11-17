@@ -44,7 +44,7 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
 | Page | URL |
 | --- | --- |
 | Home (now showing) | `/` |
-| A film and its 7-day schedule | `/movies/the-last-caravan` |
+| A film and its 7-day schedule | `/movies/dune-part-three` |
 | 3D seat selection | `/showtimes/<showtime-id>/seats` (open it from any showtime) |
 | My tickets (this browser) | `/tickets` |
 | Box office / staff dashboard | `/staff` — demo PIN **1234** |
@@ -55,8 +55,10 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
 
 1. **Home.** The hero rotates through featured films; the language button switches Arabic ⇄ English
    (the whole layout mirrors). Point out *"Pick your seat by sitting in it"*.
-2. **Pick a film and a time.** Seven days of showtimes per film, with live seats-left and prices.
-   Today's 8:15 PM show in Hall 1 is deliberately nearly full ("filling fast").
+2. **Pick a film and a time.** The programme is real: *Avengers: Doomsday* and *Dune: Part Three*
+   open on 18 December 2026, and their opening week is already on advance sale — pick any of those
+   shows. Seven days of showtimes per film, with live seats-left and prices. (When a film plays
+   today at 8:15 PM in Hall 1, that show is kept nearly full, "filling fast".)
 3. **The hall opens.** Velvet curtains part on a 3D model of a modern hall: acoustic panels cut with
    a Damascene star lattice, a crimson light line along the rake, surround speakers, leather seats.
    Sold seats have people in them; amber seats are being chosen by someone else right now. Drag to
@@ -79,11 +81,12 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
    practice) or a simulated e-wallet payment.
 8. **E-ticket.** Booking reference, QR code, add-to-calendar, print, cancel — and **See the view
    from my seat**, which reopens the hall seated in the booked seat.
-9. **Staff dashboard** (`/staff`, PIN 1234). Live tickets sold, revenue and occupancy per show; type
-   the booking reference to check the customer in at the door. Under **Trailers**, upload a video
-   for a film (MP4 or WebM) — it plays in the hall the next time someone sits down there; replace,
-   watch or remove it the same way. *Reset demo data* restores a fresh, realistic state before the
-   next presentation (trailers are kept).
+9. **Staff dashboard** (`/staff`, PIN 1234). Live tickets sold, revenue and occupancy per show (the
+   day strip runs on into the opening weeks on advance sale); type the booking reference to check the
+   customer in at the door. Under **Trailers**, upload a video for a film (MP4 or WebM, up to the
+   size the server accepts — shown there). It plays at once in every open hall of that film, even
+   for someone already seated; replace, watch or remove it the same way. *Reset demo data* restores
+   a fresh, realistic state before the next presentation (trailers are kept).
 
 Tips: present from `npm run demo` on a laptop (no reliance on venue Wi-Fi), in Chrome or Edge, with
 the window maximised. Phones work too (drag to look around, pinch to zoom).
@@ -96,11 +99,11 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 | --- | --- | --- |
 | Halls | Hall 1: 280 seats (14 rows × 20); Hall 2: 180 seats (12 × 15); straight rows, side aisles, digital 3D. | Seat counts are from press reports; row-by-row layouts and room dimensions are approximations. Edit `shared/halls.ts` with the surveyed plans — the 3D model, seat map, validation and prices all follow. |
 | Hall interior | A modern black-box design: graphite acoustic panels with a Damascene star lattice, crimson and warm-white light lines, surround speakers, leather seats with cup holders, a masked scope screen without curtains. | A design proposal in the cinema's colours, not a survey. Colours live in `src/three/palette.ts`; the room in `src/three/hall/architecture`. |
-| Trailers | None ship with the demo (the films are fictional): until a film has one, its hall shows the still. | Upload each film's trailer on the staff page (MP4 with H.264/AAC plays in every browser; WebM works too; up to 500 MB). Files are kept in `data/trailers` as `<film-id>.mp4` — copying a file there and restarting works as well. |
+| Trailers | None ship with the demo (studio trailers are copyrighted): until a film has one, its hall shows the still. | Upload each film's trailer on the staff page (MP4 with H.264/AAC plays in every browser; WebM works too; up to 500 MB, or what `TRAILER_MAX_MB` says — the page shows the server's limit). Files are kept in `data/trailers` as `<film-id>.mp4` — copying a file there and restarting works as well. |
 | Premium seats | A "sweet spot" zone priced higher. | The cinema currently sells one flat price. Delete the `zones` in `shared/halls.ts` to sell every seat at one price. |
 | Prices | Standard 750, premium 1,000 new Syrian pounds; +100 for 3D glasses. | Based on the published 75,000 old-pound (750 new) ticket and 10,000 old (100 new) 3D glasses. Edit `server/data/pricing.ts`. |
-| Show times | 1:30, 3:45, 6:00, 8:15, 10:30 PM (Hall 1) and 1:45, 3:30, 5:15, 7:30, 9:45 PM (Hall 2). | Mirrors the cinema's published weekly schedule. Edit `server/data/schedule.ts`. |
-| Films | 11 **fictional** films with original artwork (no third-party posters). | Replace `server/data/catalog.ts` and the SVGs in `public/posters` and `public/backdrops`, then `npm run db:reset`. |
+| Show times | 1:30, 3:45, 6:00, 8:15, 10:30 PM (Hall 1) and 1:45, 3:30, 5:15, 7:30, 9:45 PM (Hall 2). A hall shows one film at a time, so a long film leaves the next slot dark (a 2 h 45 film plays 1:30, 6:00 and 10:30). | Mirrors the cinema's published weekly schedule. Edit `server/data/schedule.ts`. |
+| Films | The real programme: *Avengers: Doomsday* and *Dune: Part Three*, both opening 18 December 2026, opening week on advance sale from 17 November. Release dates, running times, ratings, directors and cast as the studios and cinema chains published them in November 2026; taglines and synopses are our own. The key art is our own stand-in (no studio posters). | Edit `server/data/catalog.ts` (and which hall plays what in `server/data/schedule.ts`), then `npm run db:reset`. A film turns "now showing" by itself on its release date. To use the distributor's posters, drop them into `public/posters` and `public/backdrops` and point the film's `poster` / `backdrop` at them. |
 | Bookings | Seeded sample bookings so halls look lived-in (marked "sample" in the dashboard). | Turn off with `SEED_BOOKINGS=0`. |
 | Payment | *Pay at the box office* (real-world default) and a **simulated** e-wallet payment — no money moves. | Integrate a Syrian wallet or bank gateway (e.g. Sham Cash, Syriatel Cash, a licensed e-payment gateway) behind the payment step. |
 | Logo | A stand-in skyline emblem in the brand colours. | Replace with the official artwork (`src/components/brand/Logo.tsx`, `public/brand/favicon.svg`). |
@@ -128,6 +131,9 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 - **The view from a seat** is a real camera at a seated eye height (1.19 m above that row's floor),
   facing the centre of the screen. The view score combines how much of your field of view the screen
   fills, how far off-centre you sit and how much you must look up or down.
+- **The programme runs itself:** a film is "coming soon" until its release date and "now showing"
+  from then on; one with `advanceBookingFrom` has its opening week on sale from that day, so the
+  hall can be tried and seats booked weeks before it opens.
 - **Seat lifecycle:** `available → held (10 min, extended on each new seat) → booked`, or back to
   available on release, expiry or cancellation. The database enforces "never two bookings for one
   seat" with a unique index; every change is pushed to every open browser over Server-Sent Events.
@@ -140,7 +146,9 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
   texture on the screen — so heads in the rows ahead hide the picture as they would in the hall, and
   the screen light takes the picture's measured colour and brightness. It starts as you settle
   into the seat, pauses when you stand and picks up where it left off; where the browser blocks
-  sound it plays muted with a one-click *hear the trailer* button.
+  sound it plays muted with a one-click *hear the trailer* button. It recovers from interruptions on
+  its own — the system pausing it, a hidden tab, a dropped connection or a server restart — and a
+  trailer uploaded while you sit there replaces the still (or the old trailer) straight away.
 - **Performance:** all seats of a hall are drawn with a handful of instanced meshes (a few draw
   calls whatever the size), the resolution adapts to the GPU, and the 3D engine is loaded only when a
   hall is opened. Without WebGL the accessible 2D seat map takes over.
@@ -172,7 +180,7 @@ public/            film artwork, favicon
 | `DB_FILE` | `data/cinema.db` | SQLite database file |
 | `SEED_BOOKINGS` | `1` | Generate sample bookings (`0` = start with empty halls) |
 | `TRAILERS_DIR` | `data/trailers` | Folder for the trailer videos uploaded on the staff page |
-| `TRAILER_MAX_MB` | `500` | Largest trailer upload accepted, in megabytes |
+| `TRAILER_MAX_MB` | `500` | Largest trailer upload accepted, in megabytes (the staff page shows it and checks files against it) |
 
 `npm run db:reset` deletes the database and rebuilds it from the code (films, halls, schedule,
 sample bookings). The staff dashboard's *Reset demo data* does the same without a restart. Neither
@@ -187,7 +195,7 @@ touches the uploaded trailers.
 | `npm run dev` | API + web app with hot reload (http://localhost:5173) |
 | `npm run demo` | Production build served by the API (http://localhost:4000) |
 | `npm run build` / `npm start` | Build the web app / start the server |
-| `npm test` | Unit and API integration tests (Vitest + Supertest) |
+| `npm test` | Unit and API integration tests (Vitest + Supertest). They run on fixed fictional films (`server/fixtures/films.ts`), so editing the programme never breaks them |
 | `npm run typecheck` | TypeScript check of the whole project |
 | `npm run db:reset` | Recreate the database with fresh demo data |
 
@@ -220,4 +228,4 @@ touches the uploaded trailers.
 
 ---
 
-*Demonstration build. All films, people and bookings in it are fictional sample data.*
+*Demonstration build. The films are real; the people and bookings in it are fictional sample data.*

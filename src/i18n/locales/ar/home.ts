@@ -4,8 +4,10 @@ import type { home as en } from '../en/home';
 export const home: typeof en = {
   hero: {
     eyebrow: 'يُعرض حالياً',
+    eyebrowAdvance: 'في الصالات {date} · احجز الآن',
     todayAt: 'اليوم',
     nextShows: 'العروض القادمة',
+    openingShows: 'أسبوع العرض الأول',
     noShowsToday: 'لا عروض أخرى اليوم — شاهد البرنامج الكامل',
     slide: 'الفيلم {index} من {count}',
   },
@@ -24,6 +26,7 @@ export const home: typeof en = {
     nowShowingSub: 'احجز مقاعدك لليوم وللأسبوع القادم.',
     comingSoon: 'قريباً',
     comingSoonSub: 'سجّل الموعد في مفكرتك.',
+    comingSoonBookable: 'احجز لأسبوع العرض الأول من الآن، وجرّب مقعدك في الصالة ثلاثية الأبعاد أولاً.',
     halls: 'صالاتنا',
     hallsSub: 'صالتان رقميتان ثلاثيتا الأبعاد في قلب دمشق.',
   },

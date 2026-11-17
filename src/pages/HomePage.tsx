@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Spinner';
 import { useI18n } from '@/i18n';
 import { api } from '@/lib/api';
+import { useFormat } from '@/lib/format';
 import { useAsync, useDocumentTitle } from '@/lib/hooks';
 
 export default function HomePage() {
@@ -24,53 +25,68 @@ export default function HomePage() {
 
   const nowShowing = useMemo(() => movies.data?.movies.filter((m) => m.status === 'now_showing') ?? [], [movies.data]);
   const comingSoon = useMemo(() => movies.data?.movies.filter((m) => m.status === 'coming_soon') ?? [], [movies.data]);
+  /** Coming-soon films whose opening week is already on sale. */
+  const inAdvance = useMemo(() => comingSoon.filter((m) => m.nextShowtimes.length > 0), [comingSoon]);
+  /** Everything that can be booked now. */
+  const bookable = useMemo(() => [...nowShowing, ...inAdvance], [nowShowing, inAdvance]);
   const featured = useMemo(() => {
-    const list = nowShowing.filter((m) => m.featured);
-    return (list.length > 0 ? list : nowShowing).slice(0, 3);
-  }, [nowShowing]);
+    // Lead with what is showing; while nothing is, with the films on advance sale.
+    const pool = nowShowing.length > 0 ? nowShowing : inAdvance.length > 0 ? inAdvance : comingSoon;
+    const list = pool.filter((m) => m.featured);
+    return (list.length > 0 ? list : pool).slice(0, 3);
+  }, [nowShowing, inAdvance, comingSoon]);
   const firstShowtime = useMemo(
     () =>
-      nowShowing
+      bookable
         .flatMap((m) => m.nextShowtimes)
         .filter((s) => s.status === 'open' || s.status === 'filling_fast')
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0] ?? null,
-    [nowShowing],
+    [bookable],
   );
 
   if (movies.error && !movies.data) {
     return <ErrorState error={movies.error} onRetry={movies.reload} />;
   }
 
+  const loading = movies.loading && !movies.data;
+  // With nothing showing yet, the coming-soon films are the programme: they take the section's place.
+  const showNowShowing = loading || nowShowing.length > 0 || comingSoon.length === 0;
+
   return (
     <>
-      <Hero movies={featured} loading={movies.loading && !movies.data} />
+      <Hero movies={featured} loading={loading} />
       <HowItWorks showtime={firstShowtime} />
 
-      <section id="now-showing" className="mx-auto max-w-7xl scroll-mt-24 px-4 pt-20 sm:px-6">
-        <SectionHeading title={t('home.sections.nowShowing')} subtitle={t('home.sections.nowShowingSub')} />
-        {movies.loading && !movies.data ? (
-          <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
-            {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="space-y-3">
-                <Skeleton className="aspect-[2/3] w-full rounded-2xl" />
-                <Skeleton className="h-4 w-2/3" />
-              </div>
-            ))}
-          </div>
-        ) : nowShowing.length === 0 ? (
-          <p className="text-sand">{t('home.empty')}</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
-            {nowShowing.map((movie, index) => (
-              <MovieCard key={movie.id} movie={movie} index={index} />
-            ))}
-          </div>
-        )}
-      </section>
+      {showNowShowing && (
+        <section id="now-showing" className="mx-auto max-w-7xl scroll-mt-24 px-4 pt-20 sm:px-6">
+          <SectionHeading title={t('home.sections.nowShowing')} subtitle={t('home.sections.nowShowingSub')} />
+          {loading ? (
+            <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 8 }, (_, i) => (
+                <div key={i} className="space-y-3">
+                  <Skeleton className="aspect-[2/3] w-full rounded-2xl" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              ))}
+            </div>
+          ) : nowShowing.length === 0 ? (
+            <p className="text-sand">{t('home.empty')}</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
+              {nowShowing.map((movie, index) => (
+                <MovieCard key={movie.id} movie={movie} index={index} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {comingSoon.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 pt-20 sm:px-6">
-          <SectionHeading title={t('home.sections.comingSoon')} subtitle={t('home.sections.comingSoonSub')} />
+        <section id={showNowShowing ? 'coming-soon' : 'now-showing'} className="mx-auto max-w-7xl scroll-mt-24 px-4 pt-20 sm:px-6">
+          <SectionHeading
+            title={t('home.sections.comingSoon')}
+            subtitle={inAdvance.length > 0 ? t('home.sections.comingSoonBookable') : t('home.sections.comingSoonSub')}
+          />
           <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
             {comingSoon.map((movie, index) => (
               <MovieCard key={movie.id} movie={movie} index={index} />
@@ -79,7 +95,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {halls.data && halls.data.halls.length > 0 && <Halls halls={halls.data.halls} movies={nowShowing} />}
+      {halls.data && halls.data.halls.length > 0 && <Halls halls={halls.data.halls} movies={bookable} />}
     </>
   );
 }
@@ -102,6 +118,7 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle?: string 
 
 function Hero({ movies, loading }: { movies: MovieWithShowtimes[]; loading: boolean }) {
   const { t, L } = useI18n();
+  const f = useFormat();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const movie = movies[index % Math.max(1, movies.length)];
@@ -115,6 +132,7 @@ function Hero({ movies, loading }: { movies: MovieWithShowtimes[]; loading: bool
   const today = cinemaDate(Date.now());
   const todays = movie?.nextShowtimes.filter((s) => cinemaDate(s.startsAt) === today) ?? [];
   const upcoming: ShowtimeSummary[] = todays.length > 0 ? todays : (movie?.nextShowtimes ?? []);
+  const comingSoon = movie?.status === 'coming_soon';
 
   return (
     <section
@@ -162,7 +180,9 @@ function Hero({ movies, loading }: { movies: MovieWithShowtimes[]; loading: bool
             >
               <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-velvet/50 bg-velvet/15 px-3 py-1 text-xs font-semibold text-[#ff9a9f]">
                 <span className="size-1.5 animate-pulse rounded-full bg-velvet-bright" />
-                {t('home.hero.eyebrow')}
+                {comingSoon
+                  ? t('home.hero.eyebrowAdvance', { date: f.dateLong(`${movie.releaseDate}T12:00:00Z`) })
+                  : t('home.hero.eyebrow')}
               </p>
               <h1 className="text-5xl text-white sm:text-6xl lg:text-7xl">{L(movie.title)}</h1>
               <p className="mt-4 max-w-xl text-lg text-cream-200 sm:text-xl">{L(movie.tagline)}</p>
@@ -181,7 +201,7 @@ function Hero({ movies, loading }: { movies: MovieWithShowtimes[]; loading: bool
               {upcoming.length > 0 && (
                 <div className="mt-8">
                   <p className="mb-3 text-xs font-semibold text-sand">
-                    {todays.length > 0 ? t('home.hero.todayAt') : t('home.hero.nextShows')}
+                    {todays.length > 0 ? t('home.hero.todayAt') : comingSoon ? t('home.hero.openingShows') : t('home.hero.nextShows')}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {upcoming.slice(0, 4).map((showtime) => (

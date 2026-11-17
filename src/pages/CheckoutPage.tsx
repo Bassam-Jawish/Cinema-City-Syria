@@ -32,7 +32,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export default function CheckoutPage() {
   const { showtimeId = '' } = useParams();
   const navigate = useNavigate();
-  const { t, L } = useI18n();
+  const { t, L, lang } = useI18n();
   const f = useFormat();
   useDocumentTitle(`${t('checkout.title')} · ${t('common.brand.name')}`);
 
@@ -116,7 +116,7 @@ export default function CheckoutPage() {
       const code = errorCodeOf(err);
       if (code === 'SEAT_UNAVAILABLE') {
         const details = err instanceof ApiError ? (err.details as { seatIds?: string[] } | undefined) : undefined;
-        setError(t('checkout.errors.seatsTaken', { seats: (details?.seatIds ?? []).join('، ') || '—' }));
+        setError(t('checkout.errors.seatsTaken', { seats: (details?.seatIds ?? []).join(lang === 'ar' ? '، ' : ', ') || '—' }));
       } else if (code === 'SHOWTIME_CLOSED') {
         setError(t('seats.closed'));
       } else if (code === 'NETWORK') {

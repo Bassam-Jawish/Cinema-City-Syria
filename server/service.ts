@@ -35,13 +35,16 @@ import type {
   ShowtimeStatus,
   ShowtimeSummary,
   Trailer,
+  TrailerLimits,
 } from '../shared/types';
-import { loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from './catalog-store';
+import { applyReleaseStatus, loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from './catalog-store';
 import { normalizeBookingCode, randomBookingCode } from './codes';
+import { CATALOG } from './data/catalog';
+import { PROGRAMMES, type Programmes } from './data/schedule';
 import { isUniqueViolation, transaction } from './db';
 import { HttpError, notFound } from './errors';
 import type { LiveHub, SeatUpdate } from './live';
-import { ensureScheduleWindow, resetDemoData, scheduleWindow, type ScheduleSummary } from './seed';
+import { bookingDays, ensureScheduleWindow, resetDemoData, scheduleWindow, type ScheduleSummary } from './seed';
 import type { TrailerStore } from './trailers';
 import { normalizeName, type BookingRequest } from './validation';
 
@@ -190,6 +193,8 @@ function prepareStatements(db: DatabaseSync) {
       SELECT COUNT(*) AS bookings, COALESCE(SUM(b.status = 'checked_in'), 0) AS checked_in
       FROM bookings b JOIN showtimes s ON s.id = b.showtime_id
       WHERE s.date = ? AND b.status <> 'cancelled'`),
+    // Days on advance sale beyond the regular window.
+    daysAfter: sql('SELECT DISTINCT date FROM showtimes WHERE date > :after ORDER BY date LIMIT 28'),
 
     bookedSeats: sql('SELECT seat_id FROM booking_seats WHERE showtime_id = ? AND active = 1'),
     liveHolds: sql('SELECT seat_id, session_id, expires_at FROM holds WHERE showtime_id = ? AND expires_at > ?'),
@@ -253,6 +258,10 @@ export interface BookingServiceOptions {
   seedBookings?: boolean;
   /** Where uploaded trailer videos live. Without one, no film has a trailer and uploads are refused. */
   trailers?: TrailerStore | null;
+  /** The film catalogue (default: server/data/catalog.ts). Tests pass a fixed one. */
+  movies?: readonly Movie[];
+  /** Which films each hall rotates through (default: server/data/schedule.ts). */
+  programmes?: Programmes;
 }
 
 export interface AdminBookingQuery {
@@ -272,8 +281,12 @@ export class BookingService {
   private readonly searchStatements = new Map<string, StatementSync>();
   private catalogState: CatalogRuntime;
   private readonly trailers: TrailerStore | null;
+  private readonly movies: readonly Movie[];
+  private readonly programmes: Programmes;
   private scheduleCheckedAt = Number.NEGATIVE_INFINITY;
   private scheduleCheckedFor = '';
+  /** The cinema date the films' statuses were last worked out for. */
+  private statusDate = '';
 
   constructor(options: BookingServiceOptions) {
     this.db = options.db;
@@ -285,7 +298,9 @@ export class BookingService {
     if (!(this.holdMinutes > 0)) throw new Error('holdMinutes must be positive');
 
     this.trailers = options.trailers ?? null;
-    syncCatalog(this.db);
+    this.movies = options.movies ?? CATALOG;
+    this.programmes = options.programmes ?? PROGRAMMES;
+    syncCatalog(this.db, this.movies);
     this.catalogState = loadCatalog(this.db);
     this.applyTrailers();
     this.sql = prepareStatements(this.db);
@@ -306,18 +321,24 @@ export class BookingService {
   }
 
   /**
-   * Rolls the schedule window forward: makes sure today … today + 6 have showtimes. Cheap enough to
-   * call on every catalogue request; it only touches the database once a minute or on a new day.
+   * Rolls the schedule window forward: makes sure today … today + 6 (and the opening weeks on
+   * advance sale) have showtimes, and moves films from "coming soon" to "now showing" on their
+   * release day. Cheap enough to call on every catalogue request; it only touches the database
+   * once a minute or on a new day.
    */
   ensureSchedule(force = false): ScheduleSummary | null {
     const now = this.now();
     const today = cinemaDate(now);
+    if (today !== this.statusDate) {
+      applyReleaseStatus(this.catalogState.movies.values(), today);
+      this.statusDate = today;
+    }
     if (!force && today === this.scheduleCheckedFor && Math.abs(now - this.scheduleCheckedAt) < SCHEDULE_CHECK_INTERVAL_MS) {
       return null;
     }
     this.scheduleCheckedAt = now;
     this.scheduleCheckedFor = today;
-    return ensureScheduleWindow(this.db, this.catalogState, now, { seedBookings: this.seedBookings });
+    return ensureScheduleWindow(this.db, this.catalogState, now, { seedBookings: this.seedBookings, programmes: this.programmes });
   }
 
   // ───────────── Catalogue ─────────────
@@ -337,20 +358,19 @@ export class BookingService {
       byMovie.set(row.movie_id, list);
     }
     const movies = [...this.catalogState.activeMovies].sort(this.compareMovies).map(
-      (movie): MovieWithShowtimes => ({
-        ...movie,
-        nextShowtimes: movie.status === 'now_showing' ? (byMovie.get(movie.id) ?? []) : [],
-      }),
+      // A coming-soon film has shows only once they are on sale (advance booking).
+      (movie): MovieWithShowtimes => ({ ...movie, nextShowtimes: byMovie.get(movie.id) ?? [] }),
     );
     return { movies, serverTime: iso(now) };
   }
 
+  /** A film and its showtimes for the week: today's, or its opening week while in advance booking. */
   getMovie(movieId: string): { movie: Movie; days: ScheduleDay[]; serverTime: string } {
     this.ensureSchedule();
     const movie = this.catalogState.movieOrder.has(movieId) ? this.catalogState.movies.get(movieId) : undefined;
     if (!movie) throw notFound(`No film with id "${movieId}"`);
     const now = this.now();
-    const dates = scheduleWindow(now);
+    const dates = bookingDays(movie, now);
     const days: ScheduleDay[] = dates.map((date) => ({ date, showtimes: [] }));
     const byDate = new Map(days.map((day) => [day.date, day.showtimes]));
     const rows = this.sql.movieDayStats.all({ movieId, from: dates[0], to: dates[dates.length - 1], now }) as unknown as ShowtimeStatsRow[];
@@ -593,8 +613,11 @@ export class BookingService {
     const counts = this.sql.dayBookingCounts.get(day) as unknown as { bookings: number; checked_in: number };
     const sum = (pick: (row: AdminShowtimeRow) => number): number => showtimes.reduce((total, row) => total + pick(row), 0);
     const tickets = sum((row) => row.seatsBooked);
+    const window = scheduleWindow(now);
+    const later = this.sql.daysAfter.all({ after: window[window.length - 1] }) as unknown as Array<{ date: string }>;
     return {
       date: day,
+      days: [...window, ...later.map((row) => row.date)],
       totals: {
         bookings: counts.bookings,
         tickets,
@@ -681,9 +704,15 @@ export class BookingService {
   /** Wipes holds, bookings and showtimes, re-reads films and halls from code and re-seeds the window. */
   resetDemo(): ScheduleSummary {
     const now = this.now();
-    const { catalog, summary } = resetDemoData(this.db, now, { seedBookings: this.seedBookings });
+    const { catalog, summary } = resetDemoData(this.db, now, {
+      seedBookings: this.seedBookings,
+      programmes: this.programmes,
+      movies: this.movies,
+    });
     this.catalogState = catalog;
     this.applyTrailers();
+    applyReleaseStatus(catalog.movies.values(), cinemaDate(now));
+    this.statusDate = cinemaDate(now);
     this.scheduleCheckedAt = now;
     this.scheduleCheckedFor = cinemaDate(now);
     this.hub.publishReset(iso(now));
@@ -692,24 +721,34 @@ export class BookingService {
 
   // ───────────── Trailers ─────────────
 
-  /** Staff: stores an uploaded video (streamed, never buffered) as the film's trailer. */
+  /** Staff: what a trailer upload may be (size limit, file types). */
+  trailerLimits(): TrailerLimits {
+    return this.trailerStore().limits();
+  }
+
+  /**
+   * Staff: stores an uploaded video (streamed, never buffered) as the film's trailer. Halls open on
+   * any device switch to it straight away.
+   */
   async uploadTrailer(movieId: string, body: Readable, declaredBytes?: number): Promise<Trailer> {
     this.activeMovie(movieId);
     const trailer = await this.trailerStore().save(movieId, body, declaredBytes);
     this.applyTrailers();
+    this.hub.publishAll({ type: 'trailer', movieId, trailer, serverTime: this.serverTime() });
     return trailer;
   }
 
   /** Staff: deletes the film's trailer; the hall shows its still again. */
   removeTrailer(movieId: string): void {
     this.activeMovie(movieId);
-    this.trailerStore().remove(movieId);
+    if (!this.trailerStore().remove(movieId)) return;
     this.applyTrailers();
+    this.hub.publishAll({ type: 'trailer', movieId, trailer: null, serverTime: this.serverTime() });
   }
 
-  /** The file behind a trailer URL ("<film id>.<mp4|webm>"), or null. */
-  trailerFile(fileName: string): { path: string; type: string } | null {
-    return this.trailers?.resolve(fileName) ?? null;
+  /** The file behind a trailer URL ("<film id>.<mp4|webm>", at version `v`), or null. */
+  trailerFile(fileName: string, version?: string): { path: string; type: string } | null {
+    return this.trailers?.resolve(fileName, version) ?? null;
   }
 
   // ───────────── Internals ─────────────

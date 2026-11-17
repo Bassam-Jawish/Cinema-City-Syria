@@ -12,7 +12,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import { clearInterval, setInterval } from 'node:timers';
 import express, { type Express, type Request, type RequestHandler } from 'express';
 import { ADMIN_PIN_HEADER, DEFAULT_HOLD_MINUTES, DEFAULT_TRAILER_MAX_MB, SESSION_HEADER } from '../shared/constants';
+import type { Movie } from '../shared/types';
 import { DEFAULT_ADMIN_PIN } from './config';
+import type { Programmes } from './data/schedule';
 import { openDatabase, prepareDatabase } from './db';
 import { HttpError, apiNotFound, errorBody, errorHandler, notFound, tooManyRequests } from './errors';
 import { LiveHub } from './live';
@@ -62,6 +64,10 @@ export interface AppOptions {
   trailersDir?: string;
   /** Largest trailer upload accepted, in bytes. */
   trailerMaxBytes?: number;
+  /** The film catalogue (default: server/data/catalog.ts). Tests pass a fixed one. */
+  movies?: readonly Movie[];
+  /** Which films each hall rotates through (default: server/data/schedule.ts). */
+  programmes?: Programmes;
 }
 
 export interface AppContext {
@@ -122,6 +128,8 @@ export function createApp(options: AppOptions): AppContext {
       adminPin: options.adminPin ?? DEFAULT_ADMIN_PIN,
       seedBookings: options.seedBookings ?? true,
       trailers: new TrailerStore(trailersDir, options.trailerMaxBytes ?? DEFAULT_TRAILER_MAX_MB * 1024 * 1024),
+      movies: options.movies,
+      programmes: options.programmes,
     });
   } catch (error) {
     hub.closeAll();
@@ -202,14 +210,18 @@ export function createApp(options: AppOptions): AppContext {
   // ── Trailers ──
   // Range requests are answered (206), so the hall can start playing and seek before the whole file arrives.
   api.get('/trailers/:file', (req, res, next) => {
-    const file = service.trailerFile(param(req, 'file'));
+    const version = typeof req.query.v === 'string' ? req.query.v : undefined;
+    const file = service.trailerFile(param(req, 'file'), version);
     if (!file) throw notFound('No such trailer');
     // Trailer URLs carry a version (?v=…) that changes with every upload, so they can be cached for good.
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.type(file.type);
-    res.sendFile(file.path, (error) => {
+    res.sendFile(file.path, (error?: Error & { code?: string }) => {
       // A viewer who seeks or leaves aborts the transfer: that is not a server error.
-      if (error && !res.headersSent) next(error);
+      if (!error || res.headersSent || error.code === 'ECONNABORTED') return;
+      // An answer that is not the file (e.g. 416 for a range past its end) must not be cached as one.
+      res.setHeader('Cache-Control', 'no-store');
+      next(error);
     });
   });
 
@@ -297,6 +309,9 @@ export function createApp(options: AppOptions): AppContext {
   api.post('/admin/reset', limited, requireAdmin, (_req, res) => {
     service.resetDemo();
     res.json({ ok: true });
+  });
+  api.get('/admin/trailers/limits', requireAdmin, (_req, res) => {
+    res.json(service.trailerLimits());
   });
   // The body is the raw video file (Content-Type video/mp4 or video/webm), streamed to disk.
   api.post('/admin/movies/:movieId/trailer', limited, requireAdmin, async (req, res) => {

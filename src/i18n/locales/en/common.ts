@@ -81,6 +81,7 @@ export const common = {
     G: 'All ages',
     PG: 'Parental guidance',
     '12+': 'Ages 12 and over',
+    '13+': 'Ages 13 and over (PG-13)',
     '15+': 'Ages 15 and over',
     '18+': 'Adults only (18+)',
   },
@@ -139,7 +140,7 @@ export const common = {
     demoReset: 'Demo data has been reset.',
     checkedIn: 'Ticket checked in.',
     wrongPin: 'Incorrect PIN.',
-    trailerUploaded: 'Trailer uploaded for {title}.',
+    trailerUploaded: 'Trailer uploaded for {title} — open halls play it right away.',
     trailerRemoved: 'Trailer removed.',
   },
   errors: {
@@ -158,7 +159,7 @@ export const common = {
     address: 'Qattan Hotel building, Victoria Bridge, Damascus',
     hours: 'Open daily · first show 1:30 PM',
     boxOffice: 'Box office',
-    demoNote: 'Demonstration build. The films, names and bookings shown are fictional sample data.',
+    demoNote: 'Demonstration build. The films are real; the names and bookings shown are fictional sample data.',
   },
   a11y: {
     loading: 'Loading',

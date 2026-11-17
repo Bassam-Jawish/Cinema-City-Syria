@@ -33,6 +33,9 @@ const shown = (file: string): string => {
 const trailerCount = (ctx: ReturnType<typeof createApp>): number =>
   ctx.service.catalog.activeMovies.filter((movie) => movie.trailer).length;
 
+/** Longest a client may take to send one request (a trailer upload). */
+const UPLOAD_TIMEOUT_MS = 60 * 60_000;
+
 function readConfig(): ServerConfig {
   try {
     return loadConfig();
@@ -60,6 +63,9 @@ function main(): void {
     trailerMaxBytes: config.trailerMaxBytes,
   });
   const server = createServer(ctx.app);
+  // Node gives a client 5 minutes to send a whole request, and a trailer of a few hundred megabytes
+  // over Wi-Fi can take longer: allow an hour. (Headers must still arrive within headersTimeout, 60 s.)
+  server.requestTimeout = UPLOAD_TIMEOUT_MS;
 
   server.on('error', (error: NodeJS.ErrnoException) => {
     console.error(
@@ -85,7 +91,7 @@ function main(): void {
       `  Client:     ${config.staticDir ? `serving ${shown(config.staticDir)}/` : 'API only — during development open the Vite dev server instead'}`,
       `  Database:   ${config.dbFile === ':memory:' ? 'in memory' : shown(config.dbFile)} (${counts.showtimes} showtimes, ${counts.bookings} bookings)`,
       `  Seat holds: ${config.holdMinutes} min`,
-      `  Trailers:   ${shown(config.trailersDir)}/ (${trailerCount(ctx)} uploaded — staff upload them at /staff)`,
+      `  Trailers:   ${shown(config.trailersDir)}/ (${trailerCount(ctx)} uploaded, up to ${Math.floor(config.trailerMaxBytes / (1024 * 1024))} MB each — staff upload them at /staff)`,
       `  Admin PIN:  ${config.adminPin === DEFAULT_ADMIN_PIN ? `${DEFAULT_ADMIN_PIN} (the default — set ADMIN_PIN to change it)` : 'from ADMIN_PIN'}`,
       `  Ready in ${Math.round(performance.now() - started)} ms`,
       '',

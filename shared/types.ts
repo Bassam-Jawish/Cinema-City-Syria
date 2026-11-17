@@ -14,7 +14,8 @@ export interface Localized {
 
 // ───────────────────────────── Movies ─────────────────────────────
 
-export type Rating = 'G' | 'PG' | '12+' | '15+' | '18+';
+/** Age ratings. '13+' is the MPA's PG-13 (most Hollywood blockbusters). */
+export type Rating = 'G' | 'PG' | '12+' | '13+' | '15+' | '18+';
 export type MovieStatus = 'now_showing' | 'coming_soon';
 export type Format = '2D' | '3D';
 
@@ -50,9 +51,15 @@ export interface Movie {
   /** Subtitle language, if any. */
   subtitles: Lang | null;
   formats: Format[];
-  /** YYYY-MM-DD */
+  /** Opening day in the cinema, YYYY-MM-DD. */
   releaseDate: string;
+  /** Follows the release date: 'now_showing' from that day on (Asia/Damascus), 'coming_soon' before it. */
   status: MovieStatus;
+  /**
+   * From this day (YYYY-MM-DD) the film's opening week can be booked in advance, before it opens.
+   * null = no advance booking: its shows go on sale with the regular 7-day schedule.
+   */
+  advanceBookingFrom: string | null;
   director: Localized;
   cast: Localized[];
   /** Audience score out of 10 (demo data). */
@@ -84,6 +91,13 @@ export interface Trailer {
 }
 
 export type TrailerType = 'video/mp4' | 'video/webm';
+
+/** What the server accepts as a trailer upload (GET /api/admin/trailers/limits). */
+export interface TrailerLimits {
+  /** Largest file, in bytes (server setting TRAILER_MAX_MB). */
+  maxBytes: number;
+  accepted: TrailerType[];
+}
 
 // ───────────────────────────── Halls ─────────────────────────────
 
@@ -133,7 +147,10 @@ export interface ShowtimeSummary extends Showtime {
 }
 
 export interface MovieWithShowtimes extends Movie {
-  /** The next few bookable showtimes from now, soonest first (empty for coming-soon titles). */
+  /**
+   * The next few showtimes from now, soonest first. Empty for a coming-soon film until its shows
+   * go on sale (with the regular schedule, or earlier with advance booking).
+   */
   nextShowtimes: ShowtimeSummary[];
 }
 
@@ -184,7 +201,9 @@ export interface ReleaseResult {
 export type SeatStreamEvent =
   | { type: 'snapshot'; seats: SeatMap; holdExpiresAt: string | null; serverTime: string }
   | { type: 'seats'; changes: SeatChange[]; serverTime: string }
-  | { type: 'reset'; serverTime: string };
+  | { type: 'reset'; serverTime: string }
+  /** Staff uploaded, replaced or removed a film's trailer (sent to every open stream). */
+  | { type: 'trailer'; movieId: string; trailer: Trailer | null; serverTime: string };
 
 export interface SeatChange {
   seatId: string;
@@ -251,6 +270,8 @@ export interface AdminShowtimeRow extends ShowtimeSummary {
 export interface AdminOverview {
   /** Calendar day in Asia/Damascus the figures are for. */
   date: string;
+  /** Days staff can pick: today … today + 6, then any later days already on sale (advance booking). */
+  days: string[];
   totals: {
     bookings: number;
     tickets: number;

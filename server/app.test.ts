@@ -5,7 +5,8 @@
  * Each test gets a fresh in-memory database, a clock that only moves when the test says so, and no
  * seeded bookings (every seat starts free).
  */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -22,6 +23,7 @@ import type {
   AdminOverview,
   Booking,
   HoldResult,
+  Movie,
   MovieWithShowtimes,
   ScheduleDay,
   SeatStreamEvent,
@@ -31,12 +33,16 @@ import type {
 } from '../shared/types';
 import { createApp, type AppContext, type AppOptions } from './app';
 import { BOOKING_CODE_ALPHABET } from './codes';
+import { PROJECT_ROOT } from './config';
 import { CATALOG } from './data/catalog';
 import { PRICING, seatPrice, showtimePrices } from './data/pricing';
-import { PROGRAMMES, canStartAt, planDay, showtimeIdFor } from './data/schedule';
+import { PROGRAMMES as REAL_PROGRAMMES, canStartAt, planDay, showtimeIdFor } from './data/schedule';
+import { FIXTURE_MOVIES, FIXTURE_PROGRAMMES } from './fixtures/films';
 
 // ───────────────────────────── Fixtures ─────────────────────────────
 
+// The tests run on fixed fictional films (server/fixtures/films.ts), not on the real programme.
+const PROGRAMMES = FIXTURE_PROGRAMMES;
 const TODAY = '2026-11-15'; // a Sunday
 const START = cinemaDateTimeToUtc(TODAY, '12:00').getTime(); // before the first show of the day
 const HOLD_MS = DEFAULT_HOLD_MINUTES * 60_000;
@@ -61,7 +67,10 @@ const seatTypesOf = (layout: (typeof HALLS)[number]['layout']): SeatType[] => {
   return SEAT_TYPES.filter((type) => geometry.seatCountByType[type] > 0);
 };
 const SCHEDULE_HALLS = HALLS.map((hall) => ({ id: hall.id, seatTypes: seatTypesOf(hall.layout) }));
-const MOVIES = new Map(CATALOG.map((movie) => [movie.id, movie]));
+/** The fixture films as the API serves them on TODAY (status follows the release date). */
+const MOVIES = new Map(
+  FIXTURE_MOVIES.map((movie): [string, Movie] => [movie.id, { ...movie, status: movie.releaseDate <= TODAY ? 'now_showing' : 'coming_soon' }]),
+);
 
 const SHOWTIME_KEYS = ['currency', 'endsAt', 'format', 'hallId', 'id', 'movieId', 'prices', 'startsAt'];
 const SUMMARY_KEYS = [...SHOWTIME_KEYS, 'hall', 'seatsAvailable', 'seatsTotal', 'status'].sort();
@@ -96,6 +105,8 @@ function setup(options: Partial<AppOptions> = {}): AppContext {
     adminPin: PIN,
     log: false,
     sweepIntervalMs: 0,
+    movies: FIXTURE_MOVIES,
+    programmes: PROGRAMMES,
     ...options,
   });
   return ctx;
@@ -111,6 +122,15 @@ afterEach(() => {
 const advance = (ms: number): void => {
   clock += ms;
 };
+
+/** Waits (up to 3 s) until `condition` holds — for effects the server completes on its own time. */
+async function until(condition: () => boolean): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('Timed out waiting for a condition');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 interface CallOptions {
   session?: string;
@@ -1003,15 +1023,15 @@ describe('schedule and pricing', () => {
   it('plans each hall-day deterministically within the rating rules', () => {
     for (let offset = 0; offset < 60; offset++) {
       const date = addDays(TODAY, offset);
-      const day = planDay(date, MOVIES, SCHEDULE_HALLS);
-      expect(planDay(date, MOVIES, SCHEDULE_HALLS)).toEqual(day);
+      const day = planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES);
+      expect(planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES)).toEqual(day);
       for (const hall of HALLS) {
         expect(day.filter((show) => show.hallId === hall.id).map((show) => show.time)).toEqual(PROGRAMMES[hall.id].slots);
       }
       for (const show of day) {
         const movie = MOVIES.get(show.movieId);
         if (!movie) throw new Error(`unknown film ${show.movieId}`);
-        expect(movie.status).toBe('now_showing');
+        expect(movie.releaseDate <= date).toBe(true);
         expect(PROGRAMMES[show.hallId].films).toContain(movie.id);
         expect(canStartAt(movie, show.startMinutes)).toBe(true);
         if (movie.rating === 'G' || movie.rating === 'PG') expect(show.startMinutes).toBeLessThan(21 * 60);
@@ -1026,15 +1046,15 @@ describe('schedule and pricing', () => {
   });
 
   it('moves films around the day and alternates 3D, skipping unreleased films', () => {
-    const week = Array.from({ length: 7 }, (_, i) => planDay(addDays(TODAY, i), MOVIES, SCHEDULE_HALLS)).flat();
+    const week = Array.from({ length: 7 }, (_, i) => planDay(addDays(TODAY, i), MOVIES, SCHEDULE_HALLS, PROGRAMMES)).flat();
     const caravanTimes = new Set(week.filter((show) => show.movieId === 'the-last-caravan').map((show) => show.time));
     expect(caravanTimes.size).toBeGreaterThan(1);
     const orbit = week.filter((show) => show.movieId === 'the-silent-orbit');
     expect(new Set(orbit.map((show) => show.format))).toEqual(new Set(['2D', '3D']));
 
     const release = MOVIES.get('rooftop-kings')?.releaseDate ?? '';
-    expect(planDay(addDays(release, -1), MOVIES, SCHEDULE_HALLS).some((s) => s.movieId === 'rooftop-kings')).toBe(false);
-    expect(planDay(release, MOVIES, SCHEDULE_HALLS).some((s) => s.movieId === 'rooftop-kings')).toBe(true);
+    expect(planDay(addDays(release, -1), MOVIES, SCHEDULE_HALLS, PROGRAMMES).some((s) => s.movieId === 'rooftop-kings')).toBe(false);
+    expect(planDay(release, MOVIES, SCHEDULE_HALLS, PROGRAMMES).some((s) => s.movieId === 'rooftop-kings')).toBe(true);
   });
 
   it('prices every seat from the one pricing table', () => {
@@ -1059,7 +1079,16 @@ describe('demo data', () => {
     seats: app.db.prepare('SELECT * FROM booking_seats ORDER BY booking_code, seat_id').all() as Row[],
   });
   const seededApp = (now: number): AppContext =>
-    createApp({ db: ':memory:', now: () => now, seedBookings: true, log: false, sweepIntervalMs: 0, adminPin: PIN });
+    createApp({
+      db: ':memory:',
+      now: () => now,
+      seedBookings: true,
+      log: false,
+      sweepIntervalMs: 0,
+      adminPin: PIN,
+      movies: FIXTURE_MOVIES,
+      programmes: PROGRAMMES,
+    });
 
   it('seeds every showtime of the window quickly, partially booked, deterministically', () => {
     const t0 = performance.now();
@@ -1070,7 +1099,7 @@ describe('demo data', () => {
       expect(elapsed).toBeLessThan(2000);
 
       const window = Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(TODAY, i));
-      const expectedIds = window.flatMap((date) => planDay(date, MOVIES, SCHEDULE_HALLS).map((show) => show.id)).sort();
+      const expectedIds = window.flatMap((date) => planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES).map((show) => show.id)).sort();
       const stats = a.db
         .prepare(
           `SELECT s.id, s.hall_id, (SELECT COUNT(*) FROM booking_seats b WHERE b.showtime_id = s.id AND b.active = 1) AS booked
@@ -1275,6 +1304,138 @@ describe('trailers', () => {
     expect(await filmTrailer()).toBeNull();
   });
 
+  it('tells staff the upload limit the server really enforces', async () => {
+    expect((await call('get', '/api/admin/trailers/limits')).status).toBe(401);
+    ctx.close();
+    setup({ trailerMaxBytes: 3 * 1024 * 1024 });
+    const res = await adminGet('/api/admin/trailers/limits');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ maxBytes: 3 * 1024 * 1024, accepted: ['video/mp4', 'video/webm'] });
+  });
+
+  it('replaces a trailer while someone is still watching the old file, which keeps playing for them', async () => {
+    const first = (await uploadTrailer(FILM, MP4_BYTES)).body.trailer as Trailer;
+    // A viewer mid-way through the old file (Windows refuses to rename over a file that is open).
+    const viewer = createReadStream(path.join(trailersFolder(), `${FILM}.mp4`), { highWaterMark: 256 });
+    await once(viewer, 'open');
+    const replacement = Buffer.concat([MP4_BYTES, Buffer.alloc(512, 9)]);
+    const second = await uploadTrailer(FILM, replacement);
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    const trailer = second.body.trailer as Trailer;
+    expect(trailer.size).toBe(replacement.length);
+
+    const watched: Buffer[] = [];
+    for await (const chunk of viewer) watched.push(chunk as Buffer);
+    expect(Buffer.compare(Buffer.concat(watched), MP4_BYTES)).toBe(0);
+    expect(readdirSync(trailersFolder())).toEqual([`${FILM}.mp4`]);
+
+    // The old version's URL no longer answers with someone else's bytes; the new one serves the new file.
+    expect(trailer.url).not.toBe(first.url);
+    expect((await request(ctx.app).get(first.url)).status).toBe(404);
+    const fresh = await request(ctx.app).get(trailer.url).set('Range', `bytes=0-${replacement.length - 1}`);
+    expect(fresh.status).toBe(206);
+    expect(fresh.headers['content-range']).toBe(`bytes 0-${replacement.length - 1}/${replacement.length}`);
+  });
+
+  it('does not let a failed trailer request be cached as the film', async () => {
+    const trailer = (await uploadTrailer(FILM, MP4_BYTES)).body.trailer as Trailer;
+    const past = await request(ctx.app).get(trailer.url).set('Range', `bytes=${MP4_BYTES.length + 10}-`);
+    expect(past.status).toBe(416);
+    expect(past.headers['cache-control']).toBe('no-store');
+    const missing = await request(ctx.app).get(`/api/trailers/${FILM}.webm`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers['cache-control']).toBe('no-store');
+  });
+
+  it('answers a refused upload with the reason, letting the browser finish sending instead of cutting it off', async () => {
+    const server = await listen();
+    try {
+      // Like a browser: send the whole file, then read the answer. 16 MB of text, refused from its first bytes.
+      const outcome = await new Promise<{ status: number; body: string; error: string | null; sent: number }>((resolve) => {
+        const req = http.request({
+          host: '127.0.0.1',
+          port: server.port,
+          method: 'POST',
+          path: `/api/admin/movies/${FILM}/trailer`,
+          headers: { 'content-type': 'video/mp4', [ADMIN_PIN_HEADER]: PIN },
+        });
+        const result = { status: 0, body: '', error: null as string | null, sent: 0 };
+        let pending = 2; // the answer has arrived and the whole body has been sent
+        const settle = () => --pending === 0 && resolve(result);
+        req.on('response', (res) => {
+          result.status = res.statusCode ?? 0;
+          res.setEncoding('utf8');
+          res.on('data', (chunk: string) => (result.body += chunk));
+          res.on('end', settle);
+        });
+        req.on('finish', settle);
+        req.on('error', (error: NodeJS.ErrnoException) => {
+          result.error = error.code ?? error.message;
+          resolve(result);
+        });
+        const chunk = Buffer.alloc(64 * 1024, 0x61);
+        const pump = (): void => {
+          while (result.sent < 16 * 1024 * 1024) {
+            result.sent += chunk.length;
+            if (!req.write(chunk)) return void req.once('drain', pump);
+          }
+          req.end();
+        };
+        pump();
+      });
+      expect(outcome.error).toBeNull();
+      expect(outcome.status).toBe(415);
+      expect(JSON.parse(outcome.body).error.code).toBe('UNSUPPORTED_FILE');
+      expect(outcome.sent).toBe(16 * 1024 * 1024);
+    } finally {
+      await server.close();
+    }
+    expect(readdirSync(trailersFolder())).toEqual([]);
+  });
+
+  it('cleans up after an upload the browser abandons, without reporting a server error', async () => {
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    const server = await listen();
+    try {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: server.port,
+        method: 'POST',
+        path: `/api/admin/movies/${FILM}/trailer`,
+        headers: { 'content-type': 'video/mp4', [ADMIN_PIN_HEADER]: PIN },
+      });
+      req.on('error', () => undefined);
+      req.write(MP4_BYTES); // the start of a real video…
+      await until(() => readdirSync(trailersFolder()).length > 0); // …being written
+      req.destroy(); // …then the staff member presses Cancel
+      await until(() => readdirSync(trailersFolder()).length === 0);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      console.error = original;
+      await server.close();
+    }
+    expect(errors).toEqual([]);
+    expect(await filmTrailer()).toBeNull();
+  });
+
+  it('tells every open hall when a trailer is uploaded or removed, so it plays without a reload', async () => {
+    const server = await listen();
+    const show = showtimesOf(HALL.id).find((row) => row.movie_id === FILM)!;
+    const stream = await openStream(server.port, show.id, ALICE);
+    try {
+      await stream.next('snapshot');
+      const uploaded = (await uploadTrailer(FILM, MP4_BYTES)).body.trailer as Trailer;
+      expect(await stream.next('trailer')).toEqual({ type: 'trailer', movieId: FILM, trailer: uploaded, serverTime: iso(START) });
+      expect((await call('delete', `/api/admin/movies/${FILM}/trailer`, { pin: PIN })).status).toBe(200);
+      expect(await stream.next('trailer')).toEqual({ type: 'trailer', movieId: FILM, trailer: null, serverTime: iso(START) });
+    } finally {
+      stream.close();
+      await server.close();
+    }
+  });
+
   it('picks up trailer files already in the folder and keeps them through a demo reset', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'ccs-trailers-test-'));
     try {
@@ -1368,5 +1529,132 @@ describe('http plumbing', () => {
     expect(extra).toEqual([]);
     const summary: Partial<ShowtimeSummary> = booking.showtime;
     expect(summary.seatsTotal).toBeUndefined();
+  });
+});
+
+// ───────────────────────────── Release dates and advance booking ─────────────────────────────
+
+describe('release dates and advance booking', () => {
+  // A fixture film that opens on 3 December, put on advance sale from TODAY and given to Hall 1.
+  const PRESALE = 'salt-and-thunder';
+  const RELEASE = '2026-12-03';
+  const OPENING_WEEK = Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(RELEASE, i));
+  const presaleMovies = FIXTURE_MOVIES.map((movie) => (movie.id === PRESALE ? { ...movie, advanceBookingFrom: TODAY } : movie));
+  const presaleProgrammes = {
+    ...PROGRAMMES,
+    'hall-1': { ...PROGRAMMES['hall-1'], films: [...PROGRAMMES['hall-1'].films, PRESALE] },
+  };
+  const presaleSetup = (at = START) => {
+    ctx.close();
+    setup({ movies: presaleMovies, programmes: presaleProgrammes });
+    clock = at;
+  };
+  const film = async (id = PRESALE) => (await call('get', '/api/movies')).body.movies.find((m: MovieWithShowtimes) => m.id === id) as MovieWithShowtimes;
+
+  it('puts the opening week of a coming-soon film on sale from its advance-booking day', async () => {
+    presaleSetup();
+    const listed = await film();
+    expect(listed).toMatchObject({ status: 'coming_soon', releaseDate: RELEASE, advanceBookingFrom: TODAY });
+    expect(listed.nextShowtimes.length).toBeGreaterThan(0);
+    for (const show of listed.nextShowtimes) expect(cinemaDate(show.startsAt) >= RELEASE).toBe(true);
+
+    // Its page offers the opening week (the hall rotates six films through five slots, so not every day).
+    const page = await call('get', `/api/movies/${PRESALE}`);
+    const days = page.body.days as ScheduleDay[];
+    expect(days.map((day) => day.date)).toEqual(OPENING_WEEK);
+    const premiere = days.flatMap((day) => day.showtimes)[0];
+    expect(premiere).toBeDefined();
+    expect(days.filter((day) => day.showtimes.length > 0).length).toBeGreaterThanOrEqual(4);
+
+    // A seat for the opening week can be held and booked today.
+    expect((await hold(ALICE, 'A1', premiere.id)).status).toBe(200);
+    expect((await book(ALICE, ['A1'], { showtimeId: premiere.id })).status).toBe(201);
+
+    // Staff can look at the days on sale.
+    const overview = await adminGet('/api/admin/overview');
+    expect(overview.body.days).toEqual([...Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(TODAY, i)), ...OPENING_WEEK]);
+    const opening = await adminGet(`/api/admin/overview?date=${cinemaDate(premiere.startsAt)}`);
+    expect(opening.body.totals.tickets).toBe(1);
+
+    // Films without advance booking still wait for their release.
+    expect((await film('echoes-of-ugarit')).nextShowtimes).toEqual([]);
+  });
+
+  it('sells nothing before the advance-booking day', async () => {
+    presaleSetup();
+    ctx.close();
+    setup({ movies: presaleMovies.map((m) => (m.id === PRESALE ? { ...m, advanceBookingFrom: addDays(TODAY, 1) } : m)), programmes: presaleProgrammes });
+    expect((await film()).nextShowtimes).toEqual([]);
+    const days = (await call('get', `/api/movies/${PRESALE}`)).body.days as ScheduleDay[];
+    expect(days.map((day) => day.date)[0]).toBe(TODAY);
+    expect(days.every((day) => day.showtimes.length === 0)).toBe(true);
+
+    // The next day the sale opens, without a restart.
+    advance(24 * 60 * 60_000);
+    expect((await film()).nextShowtimes.length).toBeGreaterThan(0);
+  });
+
+  it('moves a film to "now showing" on its release day, without a restart', async () => {
+    presaleSetup();
+    clock = cinemaDateTimeToUtc(addDays(RELEASE, -1), '23:30').getTime();
+    expect((await film()).status).toBe('coming_soon');
+    clock = cinemaDateTimeToUtc(RELEASE, '00:30').getTime();
+    const listed = await film();
+    expect(listed.status).toBe('now_showing');
+    const days = (await call('get', `/api/movies/${PRESALE}`)).body.days as ScheduleDay[];
+    expect(days[0].date).toBe(RELEASE);
+  });
+});
+
+// ───────────────────────────── The real programme ─────────────────────────────
+
+describe('the real programme (server/data/catalog.ts)', () => {
+  const realMovies = new Map(CATALOG.map((movie) => [movie.id, movie]));
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+
+  it('describes every film fully, in both languages, with its art on disk', () => {
+    expect(CATALOG.length).toBeGreaterThan(0);
+    expect(new Set(CATALOG.map((movie) => movie.id)).size).toBe(CATALOG.length);
+    for (const movie of CATALOG) {
+      expect(movie.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+      for (const text of [movie.title, movie.tagline, movie.synopsis, movie.director, ...movie.cast]) {
+        expect(text.en.trim(), movie.id).not.toBe('');
+        expect(text.ar.trim(), movie.id).not.toBe('');
+      }
+      expect(movie.releaseDate).toMatch(day);
+      if (movie.advanceBookingFrom !== null) {
+        expect(movie.advanceBookingFrom).toMatch(day);
+        expect(movie.advanceBookingFrom <= movie.releaseDate, movie.id).toBe(true);
+      }
+      expect(movie.durationMin).toBeGreaterThan(30);
+      expect(movie.formats).toContain('2D');
+      expect(movie.accent).toMatch(/^#[0-9a-fA-F]{6}$/);
+      for (const art of [movie.poster, movie.backdrop]) {
+        expect(existsSync(path.join(PROJECT_ROOT, 'public', art)), `${movie.id}: public${art}`).toBe(true);
+      }
+    }
+  });
+
+  it('gives every film a hall, and every hall films from the catalogue', () => {
+    const scheduled = new Set(Object.values(REAL_PROGRAMMES).flatMap((programme) => programme.films));
+    for (const id of scheduled) expect(realMovies.has(id), id).toBe(true);
+    for (const movie of CATALOG) expect(scheduled.has(movie.id), movie.id).toBe(true);
+  });
+
+  it('shows one film at a time in each hall, and every film in its opening week', () => {
+    const halls = HALLS.map((hall) => ({ id: hall.id, seatTypes: seatTypesOf(hall.layout) }));
+    for (const movie of CATALOG) {
+      const week = Array.from({ length: SCHEDULE_DAYS }, (_, i) => planDay(addDays(movie.releaseDate, i), realMovies, halls));
+      expect(week.flat().some((show) => show.movieId === movie.id), movie.id).toBe(true);
+      for (const shows of week) {
+        for (const hall of HALLS) {
+          const inHall = shows.filter((show) => show.hallId === hall.id);
+          for (let i = 1; i < inHall.length; i++) {
+            expect(inHall[i].startsAt, `${inHall[i].id} starts before ${inHall[i - 1].id} ends`).toBeGreaterThanOrEqual(inHall[i - 1].endsAt);
+          }
+          for (const show of inHall) expect(realMovies.get(show.movieId)!.releaseDate <= show.date).toBe(true);
+        }
+      }
+    }
   });
 });

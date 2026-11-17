@@ -75,7 +75,12 @@ function hallRuntime(definition: HallDefinition, order: number): HallRuntime {
   };
 }
 
-/** Reads films and halls back from the database. */
+/** Sets each film's status from its release date: now showing from that day on, coming soon before. */
+export function applyReleaseStatus(movies: Iterable<Movie>, today: string): void {
+  for (const movie of movies) movie.status = movie.releaseDate <= today ? 'now_showing' : 'coming_soon';
+}
+
+/** Reads films and halls back from the database. Film statuses still need applyReleaseStatus(). */
 export function loadCatalog(db: DatabaseSync): CatalogRuntime {
   const movieRows = db.prepare('SELECT data, active FROM movies ORDER BY active DESC, sort_order, id').all() as unknown as Array<{
     data: string;
@@ -85,8 +90,9 @@ export function loadCatalog(db: DatabaseSync): CatalogRuntime {
   const activeMovies: Movie[] = [];
   for (const row of movieRows) {
     const movie = JSON.parse(row.data) as Movie;
-    // Rows of films retired before trailers existed have no trailer field.
+    // Rows of films retired before these fields existed lack them.
     movie.trailer ??= null;
+    movie.advanceBookingFrom ??= null;
     movies.set(movie.id, movie);
     if (row.active) activeMovies.push(movie);
   }

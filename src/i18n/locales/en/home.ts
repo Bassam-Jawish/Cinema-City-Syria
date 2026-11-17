@@ -2,8 +2,11 @@
 export const home = {
   hero: {
     eyebrow: 'Now showing',
+    /** For a film not out yet whose opening week is on sale. */
+    eyebrowAdvance: 'In cinemas {date} · Book now',
     todayAt: 'Today',
     nextShows: 'Next shows',
+    openingShows: 'Opening week',
     noShowsToday: 'No more shows today — see the full schedule',
     slide: 'Film {index} of {count}',
   },
@@ -22,6 +25,7 @@ export const home = {
     nowShowingSub: 'Book seats for today and the coming week.',
     comingSoon: 'Coming soon',
     comingSoonSub: 'Mark your calendar.',
+    comingSoonBookable: 'Book the opening week now — and try your seat in the 3D hall first.',
     halls: 'Our halls',
     hallsSub: 'Two digital 3D halls in the heart of Damascus.',
   },

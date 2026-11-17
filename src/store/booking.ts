@@ -320,6 +320,12 @@ export const useBooking = create<BookingState>()((set, get) => {
       applyChanges(showtimeId, event.changes);
     } else if (event.type === 'reset') {
       void get().refresh();
+    } else if (event.type === 'trailer') {
+      // Staff uploaded or removed this film's trailer: the screen switches to it straight away.
+      const { detail } = get();
+      if (detail && detail.showtime.id === showtimeId && detail.movie.id === event.movieId) {
+        set({ detail: { ...detail, movie: { ...detail.movie, trailer: event.trailer } } });
+      }
     }
   }
 

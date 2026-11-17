@@ -8,12 +8,13 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { SCHEDULE_DAYS } from '../shared/constants';
 import type { SeatInfo } from '../shared/hall';
-import { addDays, cinemaDate, daysBetween, isWeekend } from '../shared/time';
+import { addDays, cinemaDate, cinemaDateTimeToUtc, daysBetween, isWeekend } from '../shared/time';
 import type { BookingStatus, Movie, PaymentMethod, PaymentStatus } from '../shared/types';
 import { loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from './catalog-store';
 import { makeBookingCode } from './codes';
+import { CATALOG } from './data/catalog';
 import { FAMILY_NAMES, FIRST_NAMES } from './data/names';
-import { planDay, type PlannedShowtime } from './data/schedule';
+import { PROGRAMMES, planDay, type PlannedShowtime, type Programmes } from './data/schedule';
 import { transaction } from './db';
 import { pick, pickWeighted, randomIndex, seededRandom, type Random } from './random';
 
@@ -56,6 +57,13 @@ const LONE_SEAT_PENALTY = 12;
 export interface SeedOptions {
   /** Generate demo bookings for newly created showtimes. */
   seedBookings: boolean;
+  /** Which films each hall rotates through (default: server/data/schedule.ts). */
+  programmes?: Programmes;
+}
+
+export interface ResetOptions extends SeedOptions {
+  /** The film catalogue to re-read (default: server/data/catalog.ts). */
+  movies?: readonly Movie[];
 }
 
 export interface ScheduleSummary {
@@ -196,6 +204,11 @@ function createSeeder(db: DatabaseSync, catalog: CatalogRuntime, now: number): S
     const parties = placeParties(segments, target, rand);
     const started = now >= show.startsAt;
     const reference = Math.min(show.startsAt, now);
+    // Booked between 6 days and 10 minutes before the show (or before now, for shows that have
+    // started) — and, for a film on advance sale, not before the sale opened.
+    const latest = reference - 10 * MINUTE;
+    const saleOpened = movie.advanceBookingFrom ? cinemaDateTimeToUtc(movie.advanceBookingFrom, '00:00').getTime() : Number.NEGATIVE_INFINITY;
+    const earliest = Math.max(reference - 6 * DAY, Math.min(saleOpened, latest));
     let seats = 0;
 
     for (const party of parties) {
@@ -206,8 +219,7 @@ function createSeeder(db: DatabaseSync, catalog: CatalogRuntime, now: number): S
       const name = customerName(rand);
       const phone = mobileNumber(rand);
       const method: PaymentMethod = rand() < BOX_OFFICE_SHARE ? 'box_office' : 'online_demo';
-      // Booked between 6 days and 10 minutes before the show (or before now, for shows that have started).
-      const createdAt = Math.floor((reference - (10 * MINUTE + rand() * (6 * DAY - 10 * MINUTE))) / 1000) * 1000;
+      const createdAt = Math.floor((latest - rand() * (latest - earliest)) / 1000) * 1000;
       let status: BookingStatus = 'confirmed';
       let payment: PaymentStatus = method === 'online_demo' ? 'paid' : 'due';
       let checkedInAt: number | null = null;
@@ -235,12 +247,40 @@ export function scheduleWindow(now: number): string[] {
   return Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(today, i));
 }
 
+/** A film's first week in the cinema: its release date and the six days after. */
+export function openingWeek(movie: Pick<Movie, 'releaseDate'>): string[] {
+  return Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(movie.releaseDate, i));
+}
+
+/** Whether the film has not opened yet but its opening week is already on sale. */
+export function inAdvanceBooking(movie: Pick<Movie, 'releaseDate' | 'advanceBookingFrom'>, today: string): boolean {
+  return movie.advanceBookingFrom !== null && movie.advanceBookingFrom <= today && today < movie.releaseDate;
+}
+
 /**
- * Makes sure showtimes exist for today … today + 6. Days generated before are left alone (and old
- * showtimes are kept); each new day gets its showtimes and, if enabled, its demo bookings.
+ * The days a film's page offers: the regular window, or — for a film in advance booking that
+ * opens after the window — its opening week.
+ */
+export function bookingDays(movie: Pick<Movie, 'releaseDate' | 'advanceBookingFrom'>, now: number): string[] {
+  const window = scheduleWindow(now);
+  return inAdvanceBooking(movie, cinemaDate(now)) && movie.releaseDate > window[window.length - 1] ? openingWeek(movie) : window;
+}
+
+/** Every day that must have showtimes: today … today + 6, plus the opening weeks on advance sale. */
+export function scheduleDates(movies: readonly Movie[], now: number): string[] {
+  const today = cinemaDate(now);
+  const dates = new Set(scheduleWindow(now));
+  for (const movie of movies) if (inAdvanceBooking(movie, today)) for (const date of openingWeek(movie)) dates.add(date);
+  return [...dates].sort();
+}
+
+/**
+ * Makes sure showtimes exist for today … today + 6 and for the opening week of every film on
+ * advance sale. Days generated before are left alone (and old showtimes are kept); each new day
+ * gets its showtimes and, if enabled, its demo bookings.
  */
 export function ensureScheduleWindow(db: DatabaseSync, catalog: CatalogRuntime, now: number, options: SeedOptions): ScheduleSummary {
-  const dates = scheduleWindow(now);
+  const dates = scheduleDates(catalog.activeMovies, now);
   const summary: ScheduleSummary = { dates: [], showtimes: 0, bookings: 0, seats: 0 };
   const knownDays = db.prepare('SELECT date FROM schedule_days WHERE date >= ? AND date <= ?');
   const missingDays = (): string[] => {
@@ -263,7 +303,7 @@ export function ensureScheduleWindow(db: DatabaseSync, catalog: CatalogRuntime, 
     const halls = catalog.activeHalls.map((hall) => ({ id: hall.definition.id, seatTypes: hall.seatTypes }));
 
     for (const date of missing) {
-      for (const show of planDay(date, programme, halls)) {
+      for (const show of planDay(date, programme, halls, options.programmes ?? PROGRAMMES)) {
         const { changes } = insertShowtime.run(
           show.id,
           show.movieId,
@@ -296,13 +336,13 @@ export function ensureScheduleWindow(db: DatabaseSync, catalog: CatalogRuntime, 
 export function resetDemoData(
   db: DatabaseSync,
   now: number,
-  options: SeedOptions,
+  options: ResetOptions,
 ): { catalog: CatalogRuntime; summary: ScheduleSummary } {
   return transaction(db, () => {
     db.exec(
       'DELETE FROM holds; DELETE FROM booking_seats; DELETE FROM bookings; DELETE FROM showtimes; DELETE FROM schedule_days;',
     );
-    syncCatalog(db);
+    syncCatalog(db, options.movies ?? CATALOG);
     // Nothing references retired films or halls any more.
     db.exec('DELETE FROM movies WHERE active = 0; DELETE FROM halls WHERE active = 0;');
     const catalog = loadCatalog(db);

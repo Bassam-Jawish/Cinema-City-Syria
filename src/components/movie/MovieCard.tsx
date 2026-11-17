@@ -8,11 +8,20 @@ import { MovieMeta } from './MovieMeta';
 import { Poster } from './Poster';
 import { ShowtimeChip } from './ShowtimeChip';
 
-/** Poster card for the "now showing" grid, with the next few showtimes underneath. */
+/** Poster card for the film grids, with the next few showtimes underneath. */
 export function MovieCard({ movie, index = 0 }: { movie: MovieWithShowtimes; index?: number }) {
   const { t, L } = useI18n();
   const f = useFormat();
   const comingSoon = movie.status === 'coming_soon';
+  /** Not out yet, but its opening week is on sale. */
+  const inAdvance = comingSoon && movie.nextShowtimes.length > 0;
+  const chips = (
+    <div className={clsx('flex flex-wrap gap-2')}>
+      {movie.nextShowtimes.slice(0, 3).map((showtime) => (
+        <ShowtimeChip key={showtime.id} showtime={showtime} size="sm" />
+      ))}
+    </div>
+  );
 
   return (
     <article
@@ -32,7 +41,7 @@ export function MovieCard({ movie, index = 0 }: { movie: MovieWithShowtimes; ind
           <div className="absolute inset-x-0 bottom-0 p-4">
             {comingSoon && (
               <span className="mb-2 inline-block rounded-full bg-marquee px-2.5 py-0.5 text-[0.7rem] font-semibold text-night-950">
-                {t('movie.comingSoonTitle')}
+                {inAdvance ? t('movie.advanceBadge') : t('movie.comingSoonTitle')}
               </span>
             )}
             <h3 className="font-display text-xl leading-tight text-white drop-shadow-[0_2px_8px_rgb(0_0_0/0.6)] sm:text-2xl">
@@ -48,13 +57,12 @@ export function MovieCard({ movie, index = 0 }: { movie: MovieWithShowtimes; ind
       <div className="mt-3 space-y-3 px-0.5">
         <MovieMeta movie={movie} className="text-xs" maxGenres={2} />
         {comingSoon ? (
-          <p className="text-sm text-sand">{t('common.movie.inCinemas', { date: f.dateLong(`${movie.releaseDate}T12:00:00Z`) })}</p>
+          <>
+            <p className="text-sm text-sand">{t('common.movie.inCinemas', { date: f.dateLong(`${movie.releaseDate}T12:00:00Z`) })}</p>
+            {inAdvance && chips}
+          </>
         ) : movie.nextShowtimes.length > 0 ? (
-          <div className={clsx('flex flex-wrap gap-2')}>
-            {movie.nextShowtimes.slice(0, 3).map((showtime) => (
-              <ShowtimeChip key={showtime.id} showtime={showtime} size="sm" />
-            ))}
-          </div>
+          chips
         ) : (
           <p className="text-sm text-dust">{t('home.card.noShows')}</p>
         )}

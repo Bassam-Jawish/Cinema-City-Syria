@@ -1,312 +1,99 @@
 /**
- * Demo film catalogue.
+ * The film programme: what the cinema is showing and about to show. Edit this list (and the halls'
+ * rotation in server/data/schedule.ts) to change the programme, then run `npm run db:reset`.
  *
- * Every film, tagline, synopsis, cast and crew name below is FICTIONAL — invented for this
- * demo so that it ships with no third-party artwork or copy. To present the cinema's real
- * programme, edit this file (and drop real posters into public/posters and public/backdrops),
- * then run `npm run db:reset`.
+ * Every film here is real. Release dates, running times, ratings, directors and cast are as the
+ * studios and cinema chains published them in November 2026; taglines and synopses are our own
+ * short descriptions. Running times of films that have not opened yet can still change by a few
+ * minutes — check them against the distributor's sheet when the print arrives.
  *
- * Trailers are not set here: staff upload a video per film on the box-office page (/staff), and
- * it plays on the hall's screen when a customer sits down (see server/trailers.ts).
+ * - `status` is not written here: a film is "now showing" from its release date on, "coming soon"
+ *   before it, and the server works it out every day.
+ * - `advanceBookingFrom`: from that day the film's opening week (release date + 6 days) is on sale,
+ *   weeks before it opens. Leave it out and the film's shows go on sale with the regular 7-day schedule.
+ * - Art: `poster` (2:3) and `backdrop` (16:9, also projected onto the hall's screen) default to
+ *   public/posters/<id>.svg and public/backdrops/<id>.svg — text-free, the UI typesets the title.
+ *   The SVGs shipped here are our own stand-ins; to use the distributor's key art, drop the files
+ *   into public/posters and public/backdrops and set e.g. `poster: '/posters/<id>.jpg'`.
+ * - Trailers are not set here: staff upload a video per film on the box-office page (/staff), and
+ *   it plays on the hall's screen when a customer sits down (see server/trailers.ts).
  */
 import type { Movie } from '../../shared/types';
 
-type CatalogMovie = Omit<Movie, 'poster' | 'backdrop' | 'trailer'>;
+/** A film as written in a catalogue file: everything the server derives or defaults is optional. */
+export type CatalogMovie = Omit<Movie, 'status' | 'poster' | 'backdrop' | 'trailer' | 'advanceBookingFrom'> &
+  Partial<Pick<Movie, 'poster' | 'backdrop' | 'advanceBookingFrom'>>;
 
-const withArt = (movie: CatalogMovie): Movie => ({
+/**
+ * The film as the API serves it. `status` is a placeholder until the server sets it from the
+ * release date (see applyReleaseStatus in server/catalog-store.ts).
+ */
+export const withDefaults = (movie: CatalogMovie): Movie => ({
   ...movie,
-  poster: `/posters/${movie.id}.svg`,
-  backdrop: `/backdrops/${movie.id}.svg`,
+  status: 'coming_soon',
+  poster: movie.poster ?? `/posters/${movie.id}.svg`,
+  backdrop: movie.backdrop ?? `/backdrops/${movie.id}.svg`,
+  advanceBookingFrom: movie.advanceBookingFrom ?? null,
   trailer: null,
 });
 
-const nowShowing: CatalogMovie[] = [
+const PROGRAMME: CatalogMovie[] = [
   {
-    id: 'the-last-caravan',
-    title: { en: 'The Last Caravan', ar: 'القافلة الأخيرة' },
-    tagline: { en: 'Some roads are older than the maps.', ar: 'بعض الدروب أقدم من الخرائط.' },
+    id: 'avengers-doomsday',
+    title: { en: 'Avengers: Doomsday', ar: 'المنتقمون: يوم القيامة' },
+    tagline: { en: 'Robert Downey Jr. returns to Marvel — as Doctor Doom.', ar: 'روبرت داوني جونيور يعود إلى مارفل… بدور دكتور دوم.' },
     synopsis: {
-      en: '1919. As the old trade routes fall silent, a young guide from Palmyra agrees to lead one final caravan across the Syrian desert — carrying a secret that three empires would kill for.',
-      ar: 'عام 1919. فيما تخبو طرق التجارة القديمة، يوافق دليلٌ شاب من تدمر على قيادة قافلةٍ أخيرة عبر البادية السورية، حاملاً سرّاً قد تقتل من أجله ثلاث إمبراطوريات.',
+      en: "Victor von Doom rises as the gravest threat the multiverse has ever faced. To stop him, the Avengers must join forces with the Fantastic Four, the X-Men and Wakanda's defenders.",
+      ar: 'يبرز فيكتور فون دوم أخطرَ تهديدٍ واجهه الكون المتعدّد على الإطلاق. ولإيقافه، لا بدّ للمنتقمين من توحيد صفوفهم مع الرباعي المذهل ورجال إكس وحُماة واكاندا.',
     },
-    genres: ['adventure', 'history', 'drama'],
-    durationMin: 138,
-    rating: '12+',
-    audio: 'ar',
-    subtitles: 'en',
-    formats: ['2D'],
-    releaseDate: '2026-11-05',
-    status: 'now_showing',
-    director: { en: 'Kinan Darwish', ar: 'كنان درويش' },
-    cast: [
-      { en: 'Yazan Al-Farra', ar: 'يزن الفرّا' },
-      { en: 'Tala Mardini', ar: 'تالا مارديني' },
-      { en: 'Rima Kassab', ar: 'ريما قصّاب' },
-    ],
-    score: 8.6,
-    accent: '#E8A33D',
-    featured: true,
-  },
-  {
-    id: 'the-silent-orbit',
-    title: { en: 'The Silent Orbit', ar: 'المدار الصامت' },
-    tagline: { en: 'Four hundred kilometres up, no one answers.', ar: 'على ارتفاع أربعمئة كيلومتر… لا أحد يجيب.' },
-    synopsis: {
-      en: 'When every channel to Earth goes dark, the last engineer aboard an ageing space station has ninety minutes — one orbit — to find out what silenced the planet below.',
-      ar: 'حين تنقطع كل قنوات الاتصال بالأرض، لا يبقى أمام آخر مهندسة على متن محطة فضائية متهالكة سوى تسعين دقيقة — دورة واحدة حول الكوكب — لتكتشف ما الذي أسكتَ العالم في الأسفل.',
-    },
-    genres: ['sci_fi', 'thriller'],
-    durationMin: 125,
-    rating: '12+',
+    genres: ['action', 'adventure', 'sci_fi'],
+    durationMin: 165,
+    rating: '13+', // PG-13
     audio: 'en',
     subtitles: 'ar',
     formats: ['2D', '3D'],
-    releaseDate: '2026-10-29',
-    status: 'now_showing',
-    director: { en: 'Elena Marsh', ar: 'إيلينا مارش' },
+    releaseDate: '2026-12-18',
+    advanceBookingFrom: '2026-11-17',
+    director: { en: 'Anthony and Joe Russo', ar: 'أنتوني وجو روسو' },
     cast: [
-      { en: 'Imani Brooks', ar: 'إيماني بروكس' },
-      { en: 'Noah Sterling', ar: 'نوح ستيرلينغ' },
-      { en: 'Lukas Varga', ar: 'لوكاس فارغا' },
+      { en: 'Robert Downey Jr.', ar: 'روبرت داوني جونيور' },
+      { en: 'Chris Hemsworth', ar: 'كريس هيمسوورث' },
+      { en: 'Chris Evans', ar: 'كريس إيفانز' },
+      { en: 'Pedro Pascal', ar: 'بيدرو باسكال' },
+      { en: 'Vanessa Kirby', ar: 'فانيسا كيربي' },
     ],
-    score: 8.1,
-    accent: '#3EC6D0',
+    score: 0, // no audience score before it opens
+    accent: '#5FCB74',
     featured: true,
   },
   {
-    id: 'jasmine-street',
-    title: { en: 'Jasmine Street', ar: 'حارة الياسمين' },
-    tagline: { en: 'Every door in the alley keeps a story.', ar: 'لكلّ بابٍ في الحارة حكاية.' },
+    id: 'dune-part-three',
+    title: { en: 'Dune: Part Three', ar: 'كثيب: الجزء الثالث' },
+    tagline: { en: "The final chapter of Denis Villeneuve's Dune saga.", ar: 'الفصل الختامي من ملحمة «كثيب» لدوني فيلنوف.' },
     synopsis: {
-      en: 'Returning to the old Damascus house she inherited, a young restorer finds a bundle of unsent letters behind the courtyard fountain — and sets out to deliver them, fifty years late.',
-      ar: 'تعود مرمِّمةٌ شابة إلى البيت الدمشقي القديم الذي ورثته، فتعثر خلف بحرة الدار على رزمةِ رسائل لم تُرسَل قط… وتقرّر أن توصلها إلى أصحابها بعد خمسين عاماً من التأخير.',
+      en: "Years after the war on Arrakis, Paul Atreides rules as emperor while a holy war is waged in his name across the known universe — and those he defeated conspire to bring him down. Based on Frank Herbert's novel Dune Messiah.",
+      ar: 'بعد سنواتٍ من حرب أراكيس، يحكم بول أتريديس إمبراطوراً بينما تُشَنّ باسمه حربٌ مقدّسة في أرجاء الكون المعروف، ويتآمر عليه مَن هزمهم للإطاحة به. عن رواية فرانك هربرت «مسيح الكثيب».',
     },
-    genres: ['drama', 'romance'],
-    durationMin: 112,
-    rating: 'PG',
-    audio: 'ar',
-    subtitles: 'en',
+    genres: ['sci_fi', 'adventure', 'drama'],
+    durationMin: 150,
+    rating: '13+', // PG-13
+    audio: 'en',
+    subtitles: 'ar',
     formats: ['2D'],
-    releaseDate: '2026-10-22',
-    status: 'now_showing',
-    director: { en: 'Lama Al-Sabbagh', ar: 'لمى الصبّاغ' },
+    releaseDate: '2026-12-18',
+    advanceBookingFrom: '2026-11-17',
+    director: { en: 'Denis Villeneuve', ar: 'دوني فيلنوف' },
     cast: [
-      { en: 'Joud Arnous', ar: 'جود عرنوس' },
-      { en: 'Samer Halabi', ar: 'سامر حلبي' },
-      { en: 'Hala Mansour', ar: 'هالة منصور' },
+      { en: 'Timothée Chalamet', ar: 'تيموثي شالاميه' },
+      { en: 'Zendaya', ar: 'زندايا' },
+      { en: 'Florence Pugh', ar: 'فلورنس بيو' },
+      { en: 'Robert Pattinson', ar: 'روبرت باتينسون' },
+      { en: 'Jason Momoa', ar: 'جيسون موموا' },
     ],
-    score: 8.8,
-    accent: '#F08CA0',
+    score: 0,
+    accent: '#E49B4F',
     featured: true,
-  },
-  {
-    id: 'rooftop-kings',
-    title: { en: 'Rooftop Kings', ar: 'ملوك السطوح' },
-    tagline: { en: 'Three friends. One rooftop. Two hundred pigeons.', ar: 'ثلاثة أصدقاء. سطحٌ واحد. ومئتا حمامة.' },
-    synopsis: {
-      en: 'A down-on-his-luck pigeon fancier bets the family rooftop on a single race across the Damascus skyline — and has one week, two hopeless friends and a stolen champion bird to win it back.',
-      ar: 'كشّاش حمامٍ سيّئ الحظ يراهن بسطح بيت العائلة في سباقٍ واحد فوق سماء دمشق، وليس أمامه سوى أسبوعٍ واحد وصديقين لا يُعتمد عليهما وحمامةٍ بطلةٍ مسروقة ليستعيد كلّ شيء.',
-    },
-    genres: ['comedy', 'family'],
-    durationMin: 104,
-    rating: 'PG',
-    audio: 'ar',
-    subtitles: null,
-    formats: ['2D'],
-    releaseDate: '2026-11-12',
-    status: 'now_showing',
-    director: { en: 'Basel Ayyash', ar: 'باسل عيّاش' },
-    cast: [
-      { en: 'Fadi Zeitoun', ar: 'فادي زيتون' },
-      { en: 'Majd Nahhas', ar: 'مجد نحّاس' },
-      { en: 'Raghad Bitar', ar: 'رغد بيطار' },
-    ],
-    score: 7.7,
-    accent: '#FF7A45',
-    featured: false,
-  },
-  {
-    id: 'iron-tide',
-    title: { en: 'Iron Tide', ar: 'المدّ الحديدي' },
-    tagline: { en: 'The sea keeps what it takes.', ar: 'البحر لا يعيد ما يأخذه.' },
-    synopsis: {
-      en: 'A disgraced salvage captain is forced back to sea when a decommissioned warship vanishes from a Mediterranean port — with her estranged brother at the helm and a storm closing in.',
-      ar: 'تُجبَر قبطانة إنقاذٍ فقدت سمعتها على العودة إلى البحر بعد اختفاء سفينةٍ حربية خارجة من الخدمة من أحد موانئ المتوسط… يقودها شقيقها الذي قاطعته منذ سنين، والعاصفة تقترب.',
-    },
-    genres: ['action', 'thriller'],
-    durationMin: 131,
-    rating: '15+',
-    audio: 'en',
-    subtitles: 'ar',
-    formats: ['2D', '3D'],
-    releaseDate: '2026-11-05',
-    status: 'now_showing',
-    director: { en: 'Marcus Hale', ar: 'ماركوس هيل' },
-    cast: [
-      { en: 'Dara Quinn', ar: 'دارا كوين' },
-      { en: 'Theo Lang', ar: 'ثيو لانغ' },
-      { en: 'Anton Reyes', ar: 'أنطون رييس' },
-    ],
-    score: 7.9,
-    accent: '#4C8DF6',
-    featured: false,
-  },
-  {
-    id: 'noor-and-the-paper-dragon',
-    title: { en: 'Noor and the Paper Dragon', ar: 'نور والتنين الورقي' },
-    tagline: { en: 'Fold a wish. Hold on tight.', ar: 'اطوِ أمنيتك… وتمسّك جيداً.' },
-    synopsis: {
-      en: "Nine-year-old Noor folds a dragon out of her grandfather's old newspapers — and wakes to find it very much alive, hungry for stories, and determined to fly her across a world made of paper.",
-      ar: 'تصنع نور، ابنة السنوات التسع، تنيناً من جرائد جدّها القديمة، لتستيقظ وتجده حيّاً يُرزق، نَهِماً للحكايات، ومصمّماً على أن يطير بها فوق عالمٍ كاملٍ من ورق.',
-    },
-    genres: ['animation', 'family', 'adventure'],
-    durationMin: 95,
-    rating: 'G',
-    audio: 'ar',
-    subtitles: null,
-    formats: ['2D', '3D'],
-    releaseDate: '2026-10-29',
-    status: 'now_showing',
-    director: { en: 'Sofia Lindqvist', ar: 'صوفيا ليندكفيست' },
-    cast: [
-      { en: 'Lea Khoury', ar: 'ليا خوري' },
-      { en: 'Omar Sukkar', ar: 'عمر سكّر' },
-      { en: 'Dima Najjar', ar: 'ديمة نجّار' },
-    ],
-    score: 8.3,
-    accent: '#FFD23F',
-    featured: false,
-  },
-  {
-    id: 'the-whisper-below',
-    title: { en: 'The Whisper Below', ar: 'همسٌ من القبو' },
-    tagline: { en: "Don't answer it.", ar: 'لا تُجِب.' },
-    synopsis: {
-      en: 'A sound engineer hired to record “silence” in an abandoned mountain hotel discovers that something in the cellar has been recording her first.',
-      ar: 'مهندسة صوتٍ تُكلَّف بتسجيل «الصمت» في فندقٍ جبليٍّ مهجور، لتكتشف أنّ شيئاً ما في القبو كان يسجّلها هي أولاً.',
-    },
-    genres: ['horror', 'mystery'],
-    durationMin: 99,
-    rating: '18+',
-    audio: 'en',
-    subtitles: 'ar',
-    formats: ['2D'],
-    releaseDate: '2026-11-12',
-    status: 'now_showing',
-    director: { en: 'Ingrid Vale', ar: 'إنغريد فيل' },
-    cast: [
-      { en: 'Maya Castellan', ar: 'مايا كاستيلان' },
-      { en: 'Jonah Reed', ar: 'جونا ريد' },
-      { en: 'Edda Holm', ar: 'إيدا هولم' },
-    ],
-    score: 7.2,
-    accent: '#9B6BFF',
-    featured: false,
-  },
-  {
-    id: 'midnight-in-aleppo',
-    title: { en: 'Midnight in Aleppo', ar: 'منتصف الليل في حلب' },
-    tagline: { en: '1956. Everyone in this city owes someone.', ar: '1956. في هذه المدينة، الكلّ مدينٌ لأحد.' },
-    synopsis: {
-      en: 'When a celebrated singer disappears on the night of her farewell concert, a weary police inspector follows her trail through the khans and cabarets of old Aleppo — and into his own past.',
-      ar: 'حين تختفي مطربةٌ شهيرة ليلةَ حفلها الوداعي، يقتفي مفتّش شرطةٍ متعَب أثرها بين خانات حلب القديمة ومسارحها… ليجد نفسه وجهاً لوجه مع ماضيه.',
-    },
-    genres: ['mystery', 'thriller'],
-    durationMin: 121,
-    rating: '15+',
-    audio: 'ar',
-    subtitles: 'en',
-    formats: ['2D'],
-    releaseDate: '2026-10-15',
-    status: 'now_showing',
-    director: { en: 'Nawar Attar', ar: 'نوّار عطّار' },
-    cast: [
-      { en: 'Karam Salloum', ar: 'كرم سلّوم' },
-      { en: 'Shahd Antaki', ar: 'شهد أنطاكي' },
-      { en: 'Rami Kayyali', ar: 'رامي كيّالي' },
-    ],
-    score: 8.4,
-    accent: '#E23E57',
-    featured: false,
   },
 ];
 
-const comingSoon: CatalogMovie[] = [
-  {
-    id: 'salt-and-thunder',
-    title: { en: 'Salt & Thunder', ar: 'ملح ورعد' },
-    tagline: { en: 'One round to settle two generations.', ar: 'جولةٌ واحدة لتسوية حساب جيلين.' },
-    synopsis: {
-      en: "A dock worker from Latakia gets his one shot at the national boxing title — with, in his corner, the trainer who ended his father's career.",
-      ar: 'عامل ميناءٍ من اللاذقية ينال فرصته الوحيدة للفوز ببطولة الملاكمة… وفي زاويته المدرّب الذي أنهى مسيرة والده.',
-    },
-    genres: ['sport', 'drama'],
-    durationMin: 118,
-    rating: '12+',
-    audio: 'ar',
-    subtitles: 'en',
-    formats: ['2D'],
-    releaseDate: '2026-12-03',
-    status: 'coming_soon',
-    director: { en: 'Wissam Jabbour', ar: 'وسام جبّور' },
-    cast: [
-      { en: 'Ghaith Saqr', ar: 'غيث صقر' },
-      { en: 'Nadim Hourani', ar: 'نديم حوراني' },
-    ],
-    score: 0,
-    accent: '#4FB0C6',
-    featured: false,
-  },
-  {
-    id: 'echoes-of-ugarit',
-    title: { en: 'Echoes of Ugarit', ar: 'أصداء أوغاريت' },
-    tagline: { en: 'Thirty signs that changed the world.', ar: 'ثلاثون رمزاً غيّرت العالم.' },
-    synopsis: {
-      en: "On the eve of the city's fall, a young scribe in ancient Ugarit races to hide the clay tablets that hold humanity's first alphabet.",
-      ar: 'عشيّة سقوط المدينة، يسابق كاتبٌ شاب في أوغاريت القديمة الزمنَ ليخفي الرُّقُم الطينية التي تحمل أول أبجديةٍ عرفتها البشرية.',
-    },
-    genres: ['history', 'adventure', 'drama'],
-    durationMin: 146,
-    rating: '12+',
-    audio: 'ar',
-    subtitles: 'en',
-    formats: ['2D', '3D'],
-    releaseDate: '2026-12-10',
-    status: 'coming_soon',
-    director: { en: 'Ghassan Melhem', ar: 'غسان ملحم' },
-    cast: [
-      { en: 'Ward Asfour', ar: 'ورد عصفور' },
-      { en: 'Lujain Shami', ar: 'لجين شامي' },
-    ],
-    score: 0,
-    accent: '#D9A066',
-    featured: false,
-  },
-  {
-    id: 'the-lantern-keeper',
-    title: { en: 'The Lantern Keeper', ar: 'حارس القناديل' },
-    tagline: { en: 'Someone has to light the dark.', ar: 'لا بدّ لأحدٍ أن يضيء العتمة.' },
-    synopsis: {
-      en: 'Every night an old man lights the lamps of a city that has forgotten it has stars. Tonight, his apprentice lets one go out.',
-      ar: 'كلَّ ليلة، يضيء عجوزٌ قناديل مدينةٍ نسيت أنّ لها نجوماً. والليلة… تترك تلميذته أحدها ينطفئ.',
-    },
-    genres: ['fantasy', 'family', 'adventure'],
-    durationMin: 108,
-    rating: 'PG',
-    audio: 'en',
-    subtitles: 'ar',
-    formats: ['2D', '3D'],
-    releaseDate: '2026-12-24',
-    status: 'coming_soon',
-    director: { en: 'Oriel Vance', ar: 'أوريل فانس' },
-    cast: [
-      { en: 'Pia Rowan', ar: 'بيا روان' },
-      { en: 'Desmond Clay', ar: 'ديزموند كلاي' },
-    ],
-    score: 0,
-    accent: '#F6B352',
-    featured: false,
-  },
-];
-
-export const CATALOG: Movie[] = [...nowShowing, ...comingSoon].map(withArt);
+export const CATALOG: Movie[] = PROGRAMME.map(withDefaults);

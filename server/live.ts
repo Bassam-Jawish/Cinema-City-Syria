@@ -86,11 +86,16 @@ export class LiveHub {
     }
   }
 
+  /** Sends one event to every open stream, whatever its showtime (a demo reset, a new trailer). */
+  publishAll(event: SeatStreamEvent): void {
+    for (const clients of [...this.streams.values()]) {
+      for (const client of [...clients]) this.send(client, event);
+    }
+  }
+
   /** Tells every open stream that the demo data was reset. */
   publishReset(serverTime: string): void {
-    for (const clients of [...this.streams.values()]) {
-      for (const client of [...clients]) this.send(client, { type: 'reset', serverTime });
-    }
+    this.publishAll({ type: 'reset', serverTime });
   }
 
   /** Ends every stream (shutdown). */

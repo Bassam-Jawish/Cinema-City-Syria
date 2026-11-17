@@ -22,6 +22,9 @@ info:
       RATE_LIMITED → `{ retryAfterSeconds }` plus a `Retry-After` header.
     - Rate limits: 40 mutating requests per 10 s per session → 429 RATE_LIMITED. Ten wrong staff
       PINs within a minute lock admin access from that address for the rest of the minute.
+    - A film's `status` follows its `releaseDate`: `now_showing` from that day on, `coming_soon`
+      before it. A coming-soon film with `advanceBookingFrom` set has its opening week (release
+      date + 6 days) on sale from that day: those showtimes can be held and booked like any other.
 
     Seat lifecycle
       available ──hold──▶ held (10 min, sliding) ──book──▶ booked
@@ -52,7 +55,8 @@ paths:
       description: |
         Now-showing films first (featured first, then newest release), then coming-soon films by release date.
         Each film carries `nextShowtimes`: up to 4 showtimes that have not started yet, soonest first
-        (sold-out ones included, flagged by `status`). Coming-soon films have none.
+        (sold-out ones included, flagged by `status`). A coming-soon film has none until its shows go
+        on sale — with the regular 7-day schedule, or earlier with advance booking.
       responses:
         '200':
           description: '`{ movies: MovieWithShowtimes[], serverTime }`'
@@ -62,9 +66,10 @@ paths:
       tags: [Catalogue]
       summary: One film with its 7-day schedule
       description: |
-        `days` always has exactly 7 entries — today (cinema time) and the next 6 days — each with that
-        day's showtimes in start order (possibly empty). Showtimes that have already started are
-        included with `status: "closed"` so the UI can show them disabled.
+        `days` always has exactly 7 entries — today (cinema time) and the next 6 days, or, for a film in
+        advance booking that opens after that, its opening week — each with that day's showtimes in
+        start order (possibly empty). Showtimes that have already started are included with
+        `status: "closed"` so the UI can show them disabled.
       parameters:
         - { name: movieId, in: path, required: true, schema: { type: string } }
       responses:
@@ -88,9 +93,12 @@ paths:
       description: |
         `file` is `<film id>.mp4` or `<film id>.webm`; use the `trailer.url` a film carries (`Movie.trailer`,
         null when the film has none), which adds a `?v=` version that changes with every upload, so the
-        response is cacheable for good. Range requests are answered with 206 Partial Content.
+        response is cacheable for good. A `v` of a file that has since been replaced answers 404 (never
+        the new file's bytes). Range requests are answered with 206 Partial Content, a range past the
+        end with 416; error answers are never cached.
       parameters:
         - { name: file, in: path, required: true, schema: { type: string } }
+        - { name: v, in: query, required: false, schema: { type: string } }
         - { name: Range, in: header, required: false, schema: { type: string } }
       responses:
         '200':
@@ -98,7 +106,9 @@ paths:
         '206':
           description: The requested byte range
         '404':
-          description: NOT_FOUND
+          description: NOT_FOUND (no such trailer, or an old version)
+        '416':
+          description: VALIDATION (range not satisfiable)
 
   /api/showtimes/{showtimeId}:
     get:
@@ -126,6 +136,8 @@ paths:
         - `snapshot` — sent immediately on connect (and after reconnects): the full seat map as seen by this session.
         - `seats` — one or more seats changed state. `state` is personalised: the holder sees `mine`, everyone else `held`.
         - `reset` — demo data was reset; clients should refetch the showtime.
+        - `trailer` — staff uploaded, replaced or removed a film's trailer: `{ movieId, trailer }` (`Trailer`
+          or null). Sent on every stream; a hall showing that film switches to it.
         A comment line (`: ping`) is sent every 15 s to keep proxies from closing the stream.
         The session id is passed as a query parameter because EventSource cannot set headers.
       parameters:
@@ -274,7 +286,8 @@ paths:
       description: |
         `AdminOverview` for one calendar day (`date`, default today, cinema time): totals and one row
         per showtime with seats booked/held, occupancy and revenue. Cancelled bookings are excluded
-        from tickets, revenue and occupancy.
+        from tickets, revenue and occupancy. `days` lists the days worth picking: today … today + 6,
+        then any later days already on sale (advance booking).
       parameters:
         - { name: date, in: query, required: false, schema: { type: string, format: date } }
         - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
@@ -356,6 +369,21 @@ paths:
         '401':
           description: UNAUTHORIZED
 
+  /api/admin/trailers/limits:
+    get:
+      tags: [Admin]
+      summary: What a trailer upload may be
+      description: |
+        `TrailerLimits`: `{ maxBytes, accepted }` — the server's TRAILER_MAX_MB setting in bytes and the
+        video types it takes, so the staff page can refuse a file before uploading it.
+      parameters:
+        - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: TrailerLimits
+        '401':
+          description: UNAUTHORIZED
+
   /api/admin/movies/{movieId}/trailer:
     post:
       tags: [Admin]
@@ -365,7 +393,10 @@ paths:
         browser) or a WebM. It streams to disk and replaces the film's previous trailer once complete.
         The file's first bytes decide whether it is a video, not the Content-Type. Larger than the
         server limit (TRAILER_MAX_MB, default 500) → 413 FILE_TOO_LARGE with `{ maxBytes, maxMegabytes }`.
-        Returns 201 `{ trailer: Trailer }`; every film payload carries it from then on.
+        A refused file is never written to disk, but the rest of the body is still read (and dropped)
+        before the answer, because browsers only read it once they have sent everything. Returns 201
+        `{ trailer: Trailer }`; every film payload carries it from then on, and every open seat stream
+        gets a `trailer` event.
       parameters:
         - { name: movieId, in: path, required: true, schema: { type: string } }
         - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }
@@ -388,7 +419,9 @@ paths:
     delete:
       tags: [Admin]
       summary: Remove a film's trailer
-      description: The hall shows the film's still again. Removing a trailer that does not exist also succeeds.
+      description: |
+        The hall shows the film's still again (open seat streams get a `trailer` event with `trailer: null`).
+        Removing a trailer that does not exist also succeeds.
       parameters:
         - { name: movieId, in: path, required: true, schema: { type: string } }
         - { name: X-Admin-Pin, in: header, required: true, schema: { type: string } }

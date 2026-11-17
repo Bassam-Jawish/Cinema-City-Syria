@@ -7,7 +7,7 @@
  */
 import { PerformanceMonitor } from '@react-three/drei';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { Trailer } from '@shared/types';
 import { useI18n } from '@/i18n';
@@ -17,8 +17,54 @@ import { lightState, resetLightState } from './lightState';
 import { PALETTE } from './palette';
 import { CameraRig } from './rig/CameraRig';
 import { runtime } from './runtime';
-import { resetScreenState } from './screenState';
+import { resetScreenState, screenState } from './screenState';
 import { TrailerScreen } from './trailer/TrailerScreen';
+
+/** While watching the trailer, the hall is redrawn at least this often even if nothing changed (ms). */
+const WATCHING_REDRAW_MS = 1000 / 24;
+
+/** Where the camera is and what it sees — position, orientation, field of view — and the canvas size. */
+function viewOf(camera: THREE.Camera, canvas: HTMLCanvasElement): number[] {
+  const { position: p, quaternion: q } = camera;
+  const lens = camera as THREE.PerspectiveCamera;
+  return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, lens.fov ?? 0, lens.zoom ?? 1, canvas.width, canvas.height];
+}
+
+/**
+ * Changes smaller than these do not count as moving the view: under a millimetre, under a hundredth
+ * of a degree of turn (well below a pixel). The seated view's slow "breathing" stays below them
+ * between two video frames, so it simply moves on with the picture. A resized canvas (which the
+ * browser clears) always counts.
+ */
+const VIEW_TOLERANCE = [0.001, 0.001, 0.001, 0.0002, 0.0002, 0.0002, 0.0002, 0.01, 0.0001, 0, 0];
+
+const sameView = (a: readonly number[], b: readonly number[]): boolean =>
+  a.length === b.length && a.every((value, i) => Math.abs(value - b[i]) <= VIEW_TOLERANCE[i]);
+
+/**
+ * Draws the hall (taking over from React Three Fiber's own render). While a customer sits watching
+ * the trailer without moving the view, a frame is drawn only when the video has a new picture —
+ * 24 or 30 times a second rather than at the display's 60–144 Hz — so the GPU keeps the headroom to
+ * decode and show the trailer smoothly. Any movement of the view, and the rest of the time, every
+ * frame is drawn as usual.
+ */
+function RenderDirector() {
+  const last = useRef({ at: Number.NEGATIVE_INFINITY, picture: -1, view: [] as number[] });
+  useFrame(({ gl, scene, camera }) => {
+    const now = performance.now();
+    const view = viewOf(camera, gl.domElement);
+    const video = screenState.videoTexture;
+    const watching =
+      video !== null && screenState.video > 0.995 && runtime.povBlend > 0.999 && useBooking.getState().view === 'pov';
+    const previous = last.current;
+    if (watching && video.version === previous.picture && sameView(view, previous.view) && now - previous.at < WATCHING_REDRAW_MS) {
+      return;
+    }
+    gl.render(scene, camera);
+    last.current = { at: now, picture: video?.version ?? -1, view };
+  }, 1);
+  return null;
+}
 
 /** Eases the shared house-light dimmer once per frame. */
 function LightDirector() {
@@ -91,6 +137,7 @@ export function HallExperience({ className, onReady }: HallExperienceProps) {
         onIncline={() => setDpr((d) => Math.min(Math.min(window.devicePixelRatio || 1, 2), d + 0.25))}
       />
       <LightDirector />
+      <RenderDirector />
       <Suspense fallback={null}>
         {/* Keyed by layout so switching halls rebuilds the scene cleanly. */}
         <HallScene key={geometry.seatCount + ':' + geometry.room.width} geometry={geometry} />

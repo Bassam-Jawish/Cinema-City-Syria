@@ -77,6 +77,8 @@ export const admin = {
     cancel: 'Cancel upload',
     tooLarge: 'That file is {size} MB — the server accepts up to {max} MB.',
     unsupported: 'That file is not an MP4 or WebM video.',
+    unplayable: 'This browser cannot play that video — it is probably H.265/HEVC, which many browsers cannot. Upload an MP4 with H.264 video.',
+    heavy: 'Uploaded. The picture is {size}: a 1080p copy plays more smoothly in the hall on slower computers.',
     failed: 'The upload did not finish. Please try again.',
     comingSoon: 'Coming soon',
     removeTitle: 'Remove this trailer?',

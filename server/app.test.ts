@@ -36,13 +36,14 @@ import { BOOKING_CODE_ALPHABET } from './codes';
 import { PROJECT_ROOT } from './config';
 import { CATALOG } from './data/catalog';
 import { PRICING, seatPrice, showtimePrices } from './data/pricing';
-import { PROGRAMMES as REAL_PROGRAMMES, canStartAt, planDay, showtimeIdFor } from './data/schedule';
-import { FIXTURE_MOVIES, FIXTURE_PROGRAMMES } from './fixtures/films';
+import { SCHEDULE as REAL_SCHEDULE, canStartAt, periodOn, planDay, scheduledFilms, showtimeIdFor } from './data/schedule';
+import { FIXTURE_MOVIES, FIXTURE_PROGRAMMES, FIXTURE_SCHEDULE } from './fixtures/films';
 
 // ───────────────────────────── Fixtures ─────────────────────────────
 
 // The tests run on fixed fictional films (server/fixtures/films.ts), not on the real programme.
 const PROGRAMMES = FIXTURE_PROGRAMMES;
+const SCHEDULE = FIXTURE_SCHEDULE;
 const TODAY = '2026-11-15'; // a Sunday
 const START = cinemaDateTimeToUtc(TODAY, '12:00').getTime(); // before the first show of the day
 const HOLD_MS = DEFAULT_HOLD_MINUTES * 60_000;
@@ -106,7 +107,7 @@ function setup(options: Partial<AppOptions> = {}): AppContext {
     log: false,
     sweepIntervalMs: 0,
     movies: FIXTURE_MOVIES,
-    programmes: PROGRAMMES,
+    schedule: SCHEDULE,
     ...options,
   });
   return ctx;
@@ -1023,8 +1024,8 @@ describe('schedule and pricing', () => {
   it('plans each hall-day deterministically within the rating rules', () => {
     for (let offset = 0; offset < 60; offset++) {
       const date = addDays(TODAY, offset);
-      const day = planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES);
-      expect(planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES)).toEqual(day);
+      const day = planDay(date, MOVIES, SCHEDULE_HALLS, SCHEDULE);
+      expect(planDay(date, MOVIES, SCHEDULE_HALLS, SCHEDULE)).toEqual(day);
       for (const hall of HALLS) {
         expect(day.filter((show) => show.hallId === hall.id).map((show) => show.time)).toEqual(PROGRAMMES[hall.id].slots);
       }
@@ -1046,15 +1047,15 @@ describe('schedule and pricing', () => {
   });
 
   it('moves films around the day and alternates 3D, skipping unreleased films', () => {
-    const week = Array.from({ length: 7 }, (_, i) => planDay(addDays(TODAY, i), MOVIES, SCHEDULE_HALLS, PROGRAMMES)).flat();
+    const week = Array.from({ length: 7 }, (_, i) => planDay(addDays(TODAY, i), MOVIES, SCHEDULE_HALLS, SCHEDULE)).flat();
     const caravanTimes = new Set(week.filter((show) => show.movieId === 'the-last-caravan').map((show) => show.time));
     expect(caravanTimes.size).toBeGreaterThan(1);
     const orbit = week.filter((show) => show.movieId === 'the-silent-orbit');
     expect(new Set(orbit.map((show) => show.format))).toEqual(new Set(['2D', '3D']));
 
     const release = MOVIES.get('rooftop-kings')?.releaseDate ?? '';
-    expect(planDay(addDays(release, -1), MOVIES, SCHEDULE_HALLS, PROGRAMMES).some((s) => s.movieId === 'rooftop-kings')).toBe(false);
-    expect(planDay(release, MOVIES, SCHEDULE_HALLS, PROGRAMMES).some((s) => s.movieId === 'rooftop-kings')).toBe(true);
+    expect(planDay(addDays(release, -1), MOVIES, SCHEDULE_HALLS, SCHEDULE).some((s) => s.movieId === 'rooftop-kings')).toBe(false);
+    expect(planDay(release, MOVIES, SCHEDULE_HALLS, SCHEDULE).some((s) => s.movieId === 'rooftop-kings')).toBe(true);
   });
 
   it('prices every seat from the one pricing table', () => {
@@ -1087,7 +1088,7 @@ describe('demo data', () => {
       sweepIntervalMs: 0,
       adminPin: PIN,
       movies: FIXTURE_MOVIES,
-      programmes: PROGRAMMES,
+      schedule: SCHEDULE,
     });
 
   it('seeds every showtime of the window quickly, partially booked, deterministically', () => {
@@ -1099,7 +1100,7 @@ describe('demo data', () => {
       expect(elapsed).toBeLessThan(2000);
 
       const window = Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(TODAY, i));
-      const expectedIds = window.flatMap((date) => planDay(date, MOVIES, SCHEDULE_HALLS, PROGRAMMES).map((show) => show.id)).sort();
+      const expectedIds = window.flatMap((date) => planDay(date, MOVIES, SCHEDULE_HALLS, SCHEDULE).map((show) => show.id)).sort();
       const stats = a.db
         .prepare(
           `SELECT s.id, s.hall_id, (SELECT COUNT(*) FROM booking_seats b WHERE b.showtime_id = s.id AND b.active = 1) AS booked
@@ -1540,13 +1541,15 @@ describe('release dates and advance booking', () => {
   const RELEASE = '2026-12-03';
   const OPENING_WEEK = Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(RELEASE, i));
   const presaleMovies = FIXTURE_MOVIES.map((movie) => (movie.id === PRESALE ? { ...movie, advanceBookingFrom: TODAY } : movie));
-  const presaleProgrammes = {
-    ...PROGRAMMES,
-    'hall-1': { ...PROGRAMMES['hall-1'], films: [...PROGRAMMES['hall-1'].films, PRESALE] },
-  };
+  const presaleSchedule = [
+    {
+      from: '2000-01-01',
+      halls: { ...PROGRAMMES, 'hall-1': { ...PROGRAMMES['hall-1'], films: [...PROGRAMMES['hall-1'].films, PRESALE] } },
+    },
+  ];
   const presaleSetup = (at = START) => {
     ctx.close();
-    setup({ movies: presaleMovies, programmes: presaleProgrammes });
+    setup({ movies: presaleMovies, schedule: presaleSchedule });
     clock = at;
   };
   const film = async (id = PRESALE) => (await call('get', '/api/movies')).body.movies.find((m: MovieWithShowtimes) => m.id === id) as MovieWithShowtimes;
@@ -1583,7 +1586,7 @@ describe('release dates and advance booking', () => {
   it('sells nothing before the advance-booking day', async () => {
     presaleSetup();
     ctx.close();
-    setup({ movies: presaleMovies.map((m) => (m.id === PRESALE ? { ...m, advanceBookingFrom: addDays(TODAY, 1) } : m)), programmes: presaleProgrammes });
+    setup({ movies: presaleMovies.map((m) => (m.id === PRESALE ? { ...m, advanceBookingFrom: addDays(TODAY, 1) } : m)), schedule: presaleSchedule });
     expect((await film()).nextShowtimes).toEqual([]);
     const days = (await call('get', `/api/movies/${PRESALE}`)).body.days as ScheduleDay[];
     expect(days.map((day) => day.date)[0]).toBe(TODAY);
@@ -1635,26 +1638,45 @@ describe('the real programme (server/data/catalog.ts)', () => {
     }
   });
 
-  it('gives every film a hall, and every hall films from the catalogue', () => {
-    const scheduled = new Set(Object.values(REAL_PROGRAMMES).flatMap((programme) => programme.films));
+  it('gives every film a hall, and names only films from the catalogue', () => {
+    const scheduled = scheduledFilms(REAL_SCHEDULE);
     for (const id of scheduled) expect(realMovies.has(id), id).toBe(true);
     for (const movie of CATALOG) expect(scheduled.has(movie.id), movie.id).toBe(true);
+    const starts = REAL_SCHEDULE.map((period) => period.from);
+    expect(starts).toEqual([...starts].sort());
   });
 
-  it('shows one film at a time in each hall, and every film in its opening week', () => {
+  it("plays the cinema's timetables as published and planned rotations one film at a time", () => {
     const halls = HALLS.map((hall) => ({ id: hall.id, seatTypes: seatTypesOf(hall.layout) }));
-    for (const movie of CATALOG) {
-      const week = Array.from({ length: SCHEDULE_DAYS }, (_, i) => planDay(addDays(movie.releaseDate, i), realMovies, halls));
-      expect(week.flat().some((show) => show.movieId === movie.id), movie.id).toBe(true);
-      for (const shows of week) {
+    for (const period of REAL_SCHEDULE) {
+      for (let i = 0; i < SCHEDULE_DAYS; i++) {
+        const date = addDays(period.from, i);
+        if (periodOn(REAL_SCHEDULE, date) !== period) break;
+        const shows = planDay(date, realMovies, halls);
         for (const hall of HALLS) {
+          const programme = period.halls[hall.id];
+          if (!programme) continue;
           const inHall = shows.filter((show) => show.hallId === hall.id);
-          for (let i = 1; i < inHall.length; i++) {
-            expect(inHall[i].startsAt, `${inHall[i].id} starts before ${inHall[i - 1].id} ends`).toBeGreaterThanOrEqual(inHall[i - 1].endsAt);
+          for (const show of inHall) expect(realMovies.get(show.movieId)!.releaseDate <= date, show.id).toBe(true);
+          if ('shows' in programme) {
+            const published = programme.shows.filter(([, id]) => realMovies.get(id)!.releaseDate <= date);
+            expect(inHall.map((show) => [show.time, show.movieId])).toEqual(published.map(([time, id]) => [time, id]));
+          } else {
+            for (let k = 1; k < inHall.length; k++) {
+              expect(inHall[k].startsAt, `${inHall[k].id} starts before ${inHall[k - 1].id} ends`).toBeGreaterThanOrEqual(inHall[k - 1].endsAt);
+            }
           }
-          for (const show of inHall) expect(realMovies.get(show.movieId)!.releaseDate <= show.date).toBe(true);
         }
       }
+    }
+  });
+
+  it('puts every film on screen', () => {
+    const halls = HALLS.map((hall) => ({ id: hall.id, seatTypes: seatTypesOf(hall.layout) }));
+    for (const movie of CATALOG) {
+      const from = [movie.releaseDate, REAL_SCHEDULE[0].from].sort()[1];
+      const days = Array.from({ length: 60 }, (_, i) => planDay(addDays(from, i), realMovies, halls));
+      expect(days.flat().some((show) => show.movieId === movie.id), movie.id).toBe(true);
     }
   });
 });

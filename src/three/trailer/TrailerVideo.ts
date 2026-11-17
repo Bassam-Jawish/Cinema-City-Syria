@@ -1,7 +1,8 @@
 /**
  * The trailer video behind the cinema screen: a hidden <video> element whose frames are drawn onto
  * the 3D screen as a texture. The file is the one staff uploaded (served by our own server), so it
- * works offline and its pixels can be read — the room is lit by the real colours of the picture.
+ * works offline and its pixels can be read — the room is lit by the real colours of the picture
+ * (measured on the GPU by PictureMeter, never by reading frames back into a canvas).
  *
  * Browsers only let a page start audible video after the visitor has interacted with it. Clicking
  * a seat usually counts; where it does not, the trailer plays muted and the HUD offers a button to
@@ -19,7 +20,6 @@
  * customer presses play there, or stands up and sits down again.
  */
 import * as THREE from 'three';
-import { averageColour } from '../screenState';
 
 export type TrailerVideoStatus = 'loading' | 'ready' | 'playing' | 'paused' | 'error';
 
@@ -34,8 +34,6 @@ export interface TrailerVideoOptions {
   onFailure?: () => void;
 }
 
-/** How often the picture's colour is measured for the room light (ms). */
-const MEASURE_EVERY_MS = 120;
 /** Least time between two attempts to restart a video something else paused (ms). */
 const RESUME_EVERY_MS = 1500;
 /** Waits before reloading a file that failed: 1 s, 2 s, 4 s … up to 15 s; then the still stays. */
@@ -65,9 +63,6 @@ export class TrailerVideo {
   private seekTo: number | null;
   private failures = 0;
   private recoveryTimer: number | null = null;
-  private readonly probe = document.createElement('canvas');
-  private probeContext: CanvasRenderingContext2D | null = null;
-  private measuredAt = 0;
   private readonly cleanup: Array<() => void> = [];
 
   constructor(private readonly options: TrailerVideoOptions) {
@@ -143,8 +138,6 @@ export class TrailerVideo {
     window.addEventListener('online', onOnline);
     this.cleanup.push(() => window.removeEventListener('online', onOnline));
 
-    this.probe.width = 16;
-    this.probe.height = 9;
     video.src = options.url;
     document.body.appendChild(video);
   }
@@ -187,23 +180,6 @@ export class TrailerVideo {
   setVolume(volume: number): void {
     const v = Math.max(0, Math.min(1, volume));
     if (Math.abs(this.video.volume - v) > 0.005) this.video.volume = v;
-  }
-
-  /**
-   * Average colour and brightness of the current frame, measured a few times a second (null in
-   * between, or when the frame cannot be read).
-   */
-  measure(now: number): ReturnType<typeof averageColour> | null {
-    if (now - this.measuredAt < MEASURE_EVERY_MS || this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
-    this.measuredAt = now;
-    try {
-      this.probeContext ??= this.probe.getContext('2d', { willReadFrequently: true });
-      if (!this.probeContext) return null;
-      this.probeContext.drawImage(this.video, 0, 0, this.probe.width, this.probe.height);
-      return averageColour(this.probeContext.getImageData(0, 0, this.probe.width, this.probe.height).data);
-    } catch {
-      return null; // e.g. a video from another site without CORS: the picture still plays, just unmeasured
-    }
   }
 
   destroy(): void {

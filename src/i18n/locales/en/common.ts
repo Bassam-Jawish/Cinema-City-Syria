@@ -66,6 +66,7 @@ export const common = {
     adventure: 'Adventure',
     animation: 'Animation',
     comedy: 'Comedy',
+    crime: 'Crime',
     drama: 'Drama',
     family: 'Family',
     fantasy: 'Fantasy',
@@ -83,6 +84,7 @@ export const common = {
     '12+': 'Ages 12 and over',
     '13+': 'Ages 13 and over (PG-13)',
     '15+': 'Ages 15 and over',
+    '16+': 'Ages 16 and over',
     '18+': 'Adults only (18+)',
   },
   hall: {

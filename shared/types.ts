@@ -14,8 +14,8 @@ export interface Localized {
 
 // ───────────────────────────── Movies ─────────────────────────────
 
-/** Age ratings. '13+' is the MPA's PG-13 (most Hollywood blockbusters). */
-export type Rating = 'G' | 'PG' | '12+' | '13+' | '15+' | '18+';
+/** Age ratings, as the cinema shows them. '13+' is the MPA's PG-13; '16+' is what the cinema gives most R-rated films. */
+export type Rating = 'G' | 'PG' | '12+' | '13+' | '15+' | '16+' | '18+';
 export type MovieStatus = 'now_showing' | 'coming_soon';
 export type Format = '2D' | '3D';
 
@@ -24,6 +24,7 @@ export const GENRES = [
   'adventure',
   'animation',
   'comedy',
+  'crime',
   'drama',
   'family',
   'fantasy',

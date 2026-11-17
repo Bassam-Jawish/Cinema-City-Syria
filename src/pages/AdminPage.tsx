@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/Spinner';
 import { useI18n } from '@/i18n';
 import { api, ApiError, errorCodeOf } from '@/lib/api';
 import { formatMegabytes, formatPhone, useFormat } from '@/lib/format';
+import { inspectVideo, largerThanHall, type VideoInfo } from '@/lib/video';
 import { useAsync, useDocumentTitle, useInterval } from '@/lib/hooks';
 import { notify } from '@/store/notices';
 
@@ -587,6 +588,8 @@ function TrailerCard({
   const upload = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Advice about a file that was uploaded but is heavier than the hall needs. */
+  const [hint, setHint] = useState<string | null>(null);
   const trailer = movie.trailer;
 
   // Leaving the page cancels an upload in flight.
@@ -595,22 +598,30 @@ function TrailerCard({
   const tooLarge = (size: number, max: number) =>
     t('admin.trailers.tooLarge', { size: formatMegabytes(size, lang), max: formatMegabytes(max, lang) });
 
-  /** The server's own checks, done here first: a wrong file is refused at once instead of after the upload. */
-  const precheck = async (file: File): Promise<string | null> => {
-    if (maxBytes !== null && file.size > maxBytes) return tooLarge(file.size, maxBytes);
+  /**
+   * The server's own checks, done here first — a wrong file is refused at once instead of after
+   * the upload — and one the server cannot do: whether a browser can play the picture at all.
+   */
+  const precheck = async (file: File): Promise<{ refused: string } | { info: VideoInfo | null }> => {
+    if (maxBytes !== null && file.size > maxBytes) return { refused: tooLarge(file.size, maxBytes) };
     try {
-      if (!sniffVideo(new Uint8Array(await file.slice(0, VIDEO_SNIFF_BYTES).arrayBuffer()))) return t('admin.trailers.unsupported');
+      if (!sniffVideo(new Uint8Array(await file.slice(0, VIDEO_SNIFF_BYTES).arrayBuffer()))) {
+        return { refused: t('admin.trailers.unsupported') };
+      }
     } catch {
       // Unreadable here (e.g. a file moved meanwhile): let the server decide.
     }
-    return null;
+    const info = await inspectVideo(file);
+    if (info === 'unplayable') return { refused: t('admin.trailers.unplayable') };
+    return { info };
   };
 
   const send = async (file: File) => {
     setError(null);
-    const refused = await precheck(file);
-    if (refused) {
-      setError(refused);
+    setHint(null);
+    const checked = await precheck(file);
+    if ('refused' in checked) {
+      setError(checked.refused);
       if (input.current) input.current.value = '';
       return;
     }
@@ -620,6 +631,9 @@ function TrailerCard({
     try {
       await api.admin.uploadTrailer(pin, movie.id, file, setProgress, controller.signal);
       notify('success', 'trailerUploaded', { title: L(movie.title) });
+      if (checked.info && largerThanHall(checked.info)) {
+        setHint(t('admin.trailers.heavy', { size: `${checked.info.width}×${checked.info.height}` }));
+      }
       onChanged();
     } catch (failure) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return;
@@ -706,6 +720,7 @@ function TrailerCard({
             {error}
           </p>
         )}
+        {hint && <p className="mt-2 text-xs text-warn">{hint}</p>}
       </div>
       <input
         ref={input}

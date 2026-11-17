@@ -11,7 +11,7 @@
  * This component only directs: the frames reach the screen through `screenState.videoTexture`
  * (see CinemaScreen), and the light the picture throws through `screenState.light` / `tint`.
  */
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { HallGeometry } from '@shared/hall';
@@ -20,6 +20,7 @@ import { useBooking } from '@/store/booking';
 import { attachTrailerControls, useTrailer } from '@/store/trailer';
 import { runtime } from '../runtime';
 import { lightForLuma, resetScreenState, screenState } from '../screenState';
+import { PictureMeter } from './PictureMeter';
 import { TrailerVideo } from './TrailerVideo';
 
 export interface TrailerScreenProps {
@@ -29,6 +30,7 @@ export interface TrailerScreenProps {
 
 /** Seated "enough" to roll the trailer: the camera is nearly in the seat and the lights are going down. */
 const SEATED_BLEND = 0.6;
+const NEUTRAL = { r: 1, g: 1, b: 1 };
 /** Least time between two checks with the server that the trailer is still the current one (ms). */
 const RECHECK_EVERY_MS = 10_000;
 let checkedAt = Number.NEGATIVE_INFINITY;
@@ -43,7 +45,19 @@ function recheckTrailer(): void {
 
 export function TrailerScreen({ geometry: g, trailer }: TrailerScreenProps) {
   const player = useRef<TrailerVideo | null>(null);
+  const meter = useRef<PictureMeter | null>(null);
+  const renderer = useThree((state) => state.gl);
   const screenAspect = g.screen.width / g.screen.height;
+
+  // Measures the picture's colour for the room light, while the GPU can afford it (see PictureMeter).
+  useEffect(() => {
+    const created = new PictureMeter(renderer);
+    meter.current = created;
+    return () => {
+      created.dispose();
+      meter.current = null;
+    };
+  }, [renderer]);
 
   // One video per trailer file; torn down with the hall.
   useEffect(() => {
@@ -84,12 +98,17 @@ export function TrailerScreen({ geometry: g, trailer }: TrailerScreenProps) {
       // Sound comes up with the picture as you settle into the seat, and fades away as you stand.
       // (Not tied to the house lights: turning them back on must not silence the trailer.)
       video.setVolume(THREE.MathUtils.smoothstep(runtime.povBlend, SEATED_BLEND, 1) * screenState.video);
-      if (showing) {
-        const sample = video.measure(performance.now());
+      if (showing && meter.current) {
+        meter.current.update(video.texture, performance.now());
+        const sample = meter.current.take();
         if (sample) {
           // Ease towards each measurement, so cuts read as a change of light rather than a flicker.
           screenState.tint = sample.tint;
           screenState.light = THREE.MathUtils.lerp(screenState.light, lightForLuma(sample.luma), 0.6);
+        } else if (meter.current.stopped) {
+          // This device cannot afford to measure the picture: the room keeps a steady, neutral light.
+          screenState.tint = NEUTRAL;
+          screenState.light = THREE.MathUtils.damp(screenState.light, 1, 3, dt);
         }
       }
     }

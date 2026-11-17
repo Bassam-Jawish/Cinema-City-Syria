@@ -40,7 +40,7 @@ import type {
 import { applyReleaseStatus, loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from './catalog-store';
 import { normalizeBookingCode, randomBookingCode } from './codes';
 import { CATALOG } from './data/catalog';
-import { PROGRAMMES, type Programmes } from './data/schedule';
+import { SCHEDULE, type Schedule } from './data/schedule';
 import { isUniqueViolation, transaction } from './db';
 import { HttpError, notFound } from './errors';
 import type { LiveHub, SeatUpdate } from './live';
@@ -260,8 +260,8 @@ export interface BookingServiceOptions {
   trailers?: TrailerStore | null;
   /** The film catalogue (default: server/data/catalog.ts). Tests pass a fixed one. */
   movies?: readonly Movie[];
-  /** Which films each hall rotates through (default: server/data/schedule.ts). */
-  programmes?: Programmes;
+  /** What each hall plays, period by period (default: server/data/schedule.ts). */
+  schedule?: Schedule;
 }
 
 export interface AdminBookingQuery {
@@ -282,7 +282,7 @@ export class BookingService {
   private catalogState: CatalogRuntime;
   private readonly trailers: TrailerStore | null;
   private readonly movies: readonly Movie[];
-  private readonly programmes: Programmes;
+  private readonly schedule: Schedule;
   private scheduleCheckedAt = Number.NEGATIVE_INFINITY;
   private scheduleCheckedFor = '';
   /** The cinema date the films' statuses were last worked out for. */
@@ -299,7 +299,7 @@ export class BookingService {
 
     this.trailers = options.trailers ?? null;
     this.movies = options.movies ?? CATALOG;
-    this.programmes = options.programmes ?? PROGRAMMES;
+    this.schedule = options.schedule ?? SCHEDULE;
     syncCatalog(this.db, this.movies);
     this.catalogState = loadCatalog(this.db);
     this.applyTrailers();
@@ -338,7 +338,7 @@ export class BookingService {
     }
     this.scheduleCheckedAt = now;
     this.scheduleCheckedFor = today;
-    return ensureScheduleWindow(this.db, this.catalogState, now, { seedBookings: this.seedBookings, programmes: this.programmes });
+    return ensureScheduleWindow(this.db, this.catalogState, now, { seedBookings: this.seedBookings, schedule: this.schedule });
   }
 
   // ───────────── Catalogue ─────────────
@@ -706,7 +706,7 @@ export class BookingService {
     const now = this.now();
     const { catalog, summary } = resetDemoData(this.db, now, {
       seedBookings: this.seedBookings,
-      programmes: this.programmes,
+      schedule: this.schedule,
       movies: this.movies,
     });
     this.catalogState = catalog;

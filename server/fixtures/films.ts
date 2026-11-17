@@ -9,7 +9,7 @@
  */
 import type { Movie } from '../../shared/types';
 import { withDefaults, type CatalogMovie } from '../data/catalog';
-import type { Programmes } from '../data/schedule';
+import type { HallRotation, Schedule } from '../data/schedule';
 
 const nowShowing: CatalogMovie[] = [
   {
@@ -292,7 +292,7 @@ const comingSoon: CatalogMovie[] = [
 export const FIXTURE_MOVIES: Movie[] = [...nowShowing, ...comingSoon].map(withDefaults);
 
 /** The halls' rotation for the fixture films. */
-export const FIXTURE_PROGRAMMES: Programmes = {
+export const FIXTURE_PROGRAMMES: Readonly<Record<string, HallRotation>> = {
   'hall-1': {
     slots: ['13:30', '15:45', '18:00', '20:15', '22:30'],
     films: ['the-last-caravan', 'the-silent-orbit', 'iron-tide', 'jasmine-street', 'noor-and-the-paper-dragon'],
@@ -304,3 +304,6 @@ export const FIXTURE_PROGRAMMES: Programmes = {
     threeD: true,
   },
 };
+
+/** One period that has always applied: the fixture halls rotate their films every day. */
+export const FIXTURE_SCHEDULE: Schedule = [{ from: '2000-01-01', halls: FIXTURE_PROGRAMMES }];

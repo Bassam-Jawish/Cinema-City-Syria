@@ -14,7 +14,7 @@ import express, { type Express, type Request, type RequestHandler } from 'expres
 import { ADMIN_PIN_HEADER, DEFAULT_HOLD_MINUTES, DEFAULT_TRAILER_MAX_MB, SESSION_HEADER } from '../shared/constants';
 import type { Movie } from '../shared/types';
 import { DEFAULT_ADMIN_PIN } from './config';
-import type { Programmes } from './data/schedule';
+import type { Schedule } from './data/schedule';
 import { openDatabase, prepareDatabase } from './db';
 import { HttpError, apiNotFound, errorBody, errorHandler, notFound, tooManyRequests } from './errors';
 import { LiveHub } from './live';
@@ -66,8 +66,8 @@ export interface AppOptions {
   trailerMaxBytes?: number;
   /** The film catalogue (default: server/data/catalog.ts). Tests pass a fixed one. */
   movies?: readonly Movie[];
-  /** Which films each hall rotates through (default: server/data/schedule.ts). */
-  programmes?: Programmes;
+  /** What each hall plays, period by period (default: server/data/schedule.ts). */
+  schedule?: Schedule;
 }
 
 export interface AppContext {
@@ -129,7 +129,7 @@ export function createApp(options: AppOptions): AppContext {
       seedBookings: options.seedBookings ?? true,
       trailers: new TrailerStore(trailersDir, options.trailerMaxBytes ?? DEFAULT_TRAILER_MAX_MB * 1024 * 1024),
       movies: options.movies,
-      programmes: options.programmes,
+      schedule: options.schedule,
     });
   } catch (error) {
     hub.closeAll();

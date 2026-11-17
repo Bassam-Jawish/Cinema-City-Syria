@@ -23,9 +23,12 @@ Pushing `master` to GitHub (`origin`) is a separate step: ask first.
 
 - Only real films, with facts checked against the studios' or cinema chains' published details —
   never invented titles, people or synopses presented as real.
-- The programme is `server/data/catalog.ts`, which hall plays what is `server/data/schedule.ts`;
-  after changing them run `npm run db:reset`. A film's status follows its release date;
-  `advanceBookingFrom` opens its opening week for booking early.
+- The programme is `server/data/catalog.ts`; which hall plays what is `server/data/schedule.ts` —
+  a timetable per hall for each week the cinema publishes (taken exactly as published), or a
+  rotation for weeks still to be planned. After changing them run `npm run db:reset`. A film's
+  status follows its release date; `advanceBookingFrom` opens its opening week for booking early.
+- When the user sends the cinema's weekly listing, it is the source of truth for that week: its
+  films, start times, age ratings and genres; posters can be cut from its images.
 - Tests run on the fictional films in `server/fixtures/films.ts`, so they never depend on the
   real programme.
 

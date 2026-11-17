@@ -63,6 +63,7 @@ export const common: typeof en = {
     adventure: 'مغامرات',
     animation: 'رسوم متحركة',
     comedy: 'كوميديا',
+    crime: 'جريمة',
     drama: 'دراما',
     family: 'عائلي',
     fantasy: 'فانتازيا',
@@ -80,6 +81,7 @@ export const common: typeof en = {
     '12+': 'لمن هم فوق 12 سنة',
     '13+': 'لمن هم فوق 13 سنة (PG-13)',
     '15+': 'لمن هم فوق 15 سنة',
+    '16+': 'لمن هم فوق 16 سنة',
     '18+': 'للكبار فقط (+18)',
   },
   hall: {

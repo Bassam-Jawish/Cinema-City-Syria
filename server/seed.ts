@@ -14,7 +14,7 @@ import { loadCatalog, syncCatalog, type CatalogRuntime, type HallRuntime } from 
 import { makeBookingCode } from './codes';
 import { CATALOG } from './data/catalog';
 import { FAMILY_NAMES, FIRST_NAMES } from './data/names';
-import { PROGRAMMES, planDay, type PlannedShowtime, type Programmes } from './data/schedule';
+import { SCHEDULE, planDay, type PlannedShowtime, type Schedule } from './data/schedule';
 import { transaction } from './db';
 import { pick, pickWeighted, randomIndex, seededRandom, type Random } from './random';
 
@@ -57,8 +57,8 @@ const LONE_SEAT_PENALTY = 12;
 export interface SeedOptions {
   /** Generate demo bookings for newly created showtimes. */
   seedBookings: boolean;
-  /** Which films each hall rotates through (default: server/data/schedule.ts). */
-  programmes?: Programmes;
+  /** What each hall plays, period by period (default: server/data/schedule.ts). */
+  schedule?: Schedule;
 }
 
 export interface ResetOptions extends SeedOptions {
@@ -303,7 +303,7 @@ export function ensureScheduleWindow(db: DatabaseSync, catalog: CatalogRuntime, 
     const halls = catalog.activeHalls.map((hall) => ({ id: hall.definition.id, seatTypes: hall.seatTypes }));
 
     for (const date of missing) {
-      for (const show of planDay(date, programme, halls, options.programmes ?? PROGRAMMES)) {
+      for (const show of planDay(date, programme, halls, options.schedule ?? SCHEDULE)) {
         const { changes } = insertShowtime.run(
           show.id,
           show.movieId,

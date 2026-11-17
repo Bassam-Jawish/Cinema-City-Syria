@@ -64,6 +64,23 @@ export interface Movie {
   /** Signature colour of the film (#rrggbb) — tints glows and the light the 3D screen casts. */
   accent: string;
   featured: boolean;
+  /** Played on the hall's screen when a customer sits down to preview a seat. null = show the still. */
+  trailer: Trailer | null;
+}
+
+/** A trailer on YouTube (see shared/youtube.ts, which builds these from an ordinary YouTube link). */
+export interface Trailer {
+  /** The link as staff entered it. */
+  url: string;
+  /** The YouTube video id parsed from the link. */
+  youtubeId: string;
+  /** Second the trailer starts at. */
+  start: number;
+  /**
+   * Shape of the picture inside YouTube's 16:9 frame: 1.778 when it fills the frame, about 2.39
+   * for a scope trailer letterboxed with black bars. The hall's masking frames exactly this.
+   */
+  aspect: number;
 }
 
 // ───────────────────────────── Halls ─────────────────────────────

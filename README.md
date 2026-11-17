@@ -2,7 +2,8 @@
 
 An MVP demo of online ticket booking for **Cinema City (سينما سيتي), Damascus**. Customers pick a
 film and a showtime, walk into a live 3D model of the hall, click a free seat — and the camera
-flies into that seat so they can **look around from it with the mouse** before they confirm.
+flies into that seat, the lights go down and **the film's trailer starts on the screen**, so they
+can look around from the seat (and hear the film) before they confirm.
 
 Arabic-first (right-to-left) with a one-tap English switch, live seat availability across
 devices, an e-ticket with a QR code, and a box-office dashboard for staff.
@@ -16,7 +17,9 @@ devices, an e-ticket with a QR code, and a box-office dashboard for staff.
 ## Quick start
 
 Requirements: **Node.js 22.13 or newer** (developed on Node 24) and npm. No database server, no
-internet connection and no API keys are needed — everything (fonts included) is self-hosted.
+internet connection and no API keys are needed — everything (fonts included) is self-hosted. The
+one exception is optional: film trailers stream from YouTube, so they need internet access; offline,
+the screen shows the film's still instead and everything else works the same.
 
 ```bash
 npm install
@@ -55,12 +58,18 @@ Then open <http://localhost:5173> (the API runs on port 4000 behind Vite's proxy
    (the whole layout mirrors). Point out *"Pick your seat by sitting in it"*.
 2. **Pick a film and a time.** Seven days of showtimes per film, with live seats-left and prices.
    Today's 8:15 PM show in Hall 1 is deliberately nearly full ("filling fast").
-3. **The hall opens.** Velvet curtains part on a 3D model of the hall. Sold seats have people in
-   them; amber seats are being chosen by someone else right now. Drag to turn the hall, scroll to zoom.
+3. **The hall opens.** Velvet curtains part on a 3D model of a modern hall: acoustic panels cut with
+   a Damascene star lattice, a crimson light line along the rake, surround speakers, leather seats.
+   Sold seats have people in them; amber seats are being chosen by someone else right now. Drag to
+   turn the hall, scroll to zoom.
 4. **Click a free seat.** It is held for you (10-minute timer) and the camera flies into it.
-   The house lights dim and the film plays on the screen. **Move the mouse to look around**
-   (point at the left edge to look left), scroll to zoom, *Esc* to stand up. The card shows the
-   seat's view score and why (how much of your view the screen fills, how far off-centre you are).
+   The house lights dim, the masking closes in and **the film's trailer plays on the screen, with
+   sound** (if the browser starts it muted, one click on *Click to hear the trailer* fixes that).
+   The heads in the rows in front really do block part of the picture. **Move the mouse to look
+   around** (point at the left edge to look left), scroll to zoom, *Esc* to stand up — the trailer
+   pauses and picks up where it left off when you sit down again. The speaker button mutes it. The
+   card shows the seat's view score and why (how much of your view the screen fills, how far
+   off-centre you are).
 5. **Compare seats.** Add a second seat; hop between them from the tray at the bottom — or press
    **Best seat for me** to be seated in the free seat with the best view.
 6. **Show it is live.** Open the same showtime on a second device (or the staff dashboard's
@@ -84,6 +93,8 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 | Area | In the demo | Source / how to make it real |
 | --- | --- | --- |
 | Halls | Hall 1: 280 seats (14 rows × 20); Hall 2: 180 seats (12 × 15); straight rows, side aisles, digital 3D. | Seat counts are from press reports; row-by-row layouts and room dimensions are approximations. Edit `shared/halls.ts` with the surveyed plans — the 3D model, seat map, validation and prices all follow. |
+| Hall interior | A modern black-box design: graphite acoustic panels with a Damascene star lattice, crimson and warm-white light lines, surround speakers, leather seats with cup holders, a masked scope screen without curtains. | A design proposal in the cinema's colours, not a survey. Colours live in `src/three/palette.ts`; the room in `src/three/hall/architecture`. |
+| Trailers | Each now-showing film has a YouTube trailer that plays on the 3D screen when you sit down. The films are fictional, so the links are **stand-ins**: short open movies by the Blender Foundation (Creative Commons Attribution). | Paste the real trailer's YouTube link into the film's `trailer:` in `server/data/catalog.ts` — any link YouTube gives you works (watch, youtu.be share link, embed, Shorts, with `?t=` start time). Restart the server. |
 | Premium seats | A "sweet spot" zone priced higher. | The cinema currently sells one flat price. Delete the `zones` in `shared/halls.ts` to sell every seat at one price. |
 | Prices | Standard 750, premium 1,000 new Syrian pounds; +100 for 3D glasses. | Based on the published 75,000 old-pound (750 new) ticket and 10,000 old (100 new) 3D glasses. Edit `server/data/pricing.ts`. |
 | Show times | 1:30, 3:45, 6:00, 8:15, 10:30 PM (Hall 1) and 1:45, 3:30, 5:15, 7:30, 9:45 PM (Hall 2). | Mirrors the cinema's published weekly schedule. Edit `server/data/schedule.ts`. |
@@ -118,6 +129,17 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 - **Seat lifecycle:** `available → held (10 min, extended on each new seat) → booked`, or back to
   available on release, expiry or cancellation. The database enforces "never two bookings for one
   seat" with a unique index; every change is pushed to every open browser over Server-Sent Events.
+- **The screen** behaves like a real one: the house lights wash out the pre-show picture, the
+  projector is brightest in the middle, black velour masking frames the picture and glides in to
+  frame a 16:9 trailer on the 2.39:1 scope screen, and the picture's light flickers across the room.
+- **The trailer on the 3D screen.** A YouTube video cannot be drawn into WebGL (the player is a
+  cross-origin iframe), so the official YouTube player sits *behind* a transparent canvas, placed
+  with a CSS 3D transform computed from the same camera (three's `CSS3DRenderer`) so it lines up with
+  the screen exactly. The screen's shader opens a window onto it; everything in front of the screen
+  stays opaque, so heads in the rows ahead hide the picture as they would in the hall. The player loads
+  during the fly-in (privacy-enhanced `youtube-nocookie.com` mode), starts once you are seated,
+  pauses when you stand, and falls back to muted playback plus a "click for sound" button where the
+  browser blocks sound. If YouTube cannot be reached, the still stays on screen.
 - **Performance:** all seats of a hall are drawn with a handful of instanced meshes (a few draw
   calls whatever the size), the resolution adapts to the GPU, and the 3D engine is loaded only when a
   hall is opened. Without WebGL the accessible 2D seat map takes over.
@@ -125,12 +147,12 @@ the window maximised. Phones work too (drag to look around, pinch to zoom).
 ### Project layout
 
 ```
-shared/            hall geometry, halls, DTO types, business rules (used by client and server)
+shared/            hall geometry, halls, DTO types, business rules, YouTube links (client and server)
 server/            Express API, SQLite (node:sqlite), live seat stream, seeding, tests
   data/            catalogue, schedule and pricing — edit these to change the programme
 src/
   pages/           Home, Film, Seats (3D), Checkout, Ticket, My tickets, Staff
-  three/           3D hall: architecture, screen & lighting, seats, camera rig
+  three/           3D hall: architecture, screen & lighting, seats, camera rig, trailer projection
   store/booking.ts the seat-selection state machine (holds, live updates, camera mode)
   i18n/            Arabic and English dictionaries (typed: a missing key fails the build)
 docs/openapi.yaml  the HTTP contract
@@ -178,6 +200,7 @@ sample bookings). The staff dashboard's *Reset demo data* does the same without 
 | Server | Node + Express 5 | Simple, well understood, easy to host anywhere |
 | Database | SQLite (built into Node) | Zero setup for the demo; a seat-level unique index prevents double booking. Swap for PostgreSQL in production |
 | Live updates | Server-Sent Events | One-way push of seat changes; works through proxies, auto-reconnects |
+| Trailers | YouTube IFrame Player API (privacy-enhanced mode) + three's CSS3DRenderer | Distributors already publish trailers on YouTube; its player handles streaming, quality and rights, so there is nothing to host. Loaded only when someone sits down |
 | Fonts | Alexandria, IBM Plex Sans Arabic, IBM Plex Mono — bundled | Excellent Arabic and Latin; no Google Fonts dependency (unreliable from Syria) |
 
 ---

@@ -52,20 +52,32 @@ export function glowTexture(): THREE.CanvasTexture {
   });
 }
 
-/** Light thrown up a wall by a sconce: bright at the bottom centre, fanning out as it rises. */
-export function washTexture(): THREE.CanvasTexture {
-  return make('wash', 128, 256, (ctx, w, h) => {
-    ctx.save();
-    ctx.translate(w / 2, h);
-    ctx.scale(1, 2.1);
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.62);
-    g.addColorStop(0, 'rgba(255,255,255,0.95)');
-    g.addColorStop(0.3, 'rgba(255,255,255,0.4)');
-    g.addColorStop(0.7, 'rgba(255,255,255,0.08)');
+/** Soft halo across a linear light: transparent at both edges (v = 0, 1), bright along the middle. */
+export function lineGlowTexture(): THREE.CanvasTexture {
+  return make('line-glow', 4, 128, (ctx, w, h) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.36, 'rgba(255,255,255,0.18)');
+    g.addColorStop(0.48, 'rgba(255,255,255,0.85)');
+    g.addColorStop(0.5, 'rgba(255,255,255,1)');
+    g.addColorStop(0.52, 'rgba(255,255,255,0.85)');
+    g.addColorStop(0.64, 'rgba(255,255,255,0.18)');
     g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
-    ctx.fillRect(-w, -h, w * 2, h);
-    ctx.restore();
+    ctx.fillRect(0, 0, w, h);
+  });
+}
+
+/** Light grazing down a wall from a cove: bright at the top (v = 1), fading out towards the bottom. */
+export function coveWashTexture(): THREE.CanvasTexture {
+  return make('cove-wash', 4, 128, (ctx, w, h) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, 'rgba(255,255,255,0.95)');
+    g.addColorStop(0.12, 'rgba(255,255,255,0.55)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0.16)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
   });
 }
 
@@ -87,7 +99,10 @@ export function fadeTexture(): THREE.CanvasTexture {
   );
 }
 
-/** Damascene eight-point-star lattice for the acoustic wall panels. Tileable; multiply with a colour. */
+/**
+ * Damascene eight-point-star lattice — the hall's local touch, cut into its acoustic wall panels
+ * like a modern mashrabiya. Tileable; multiply with a colour.
+ */
 export function latticeTexture(): THREE.CanvasTexture {
   const texture = make('lattice', 256, 256, (ctx, w) => {
     ctx.fillStyle = 'rgb(200,200,200)';
@@ -133,40 +148,45 @@ export function latticeTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-/** Cinema carpet: a fine diamond motif. Tileable; multiply with the carpet colour. */
+/** Cinema carpet: a dense loop pile with a scatter of fine flecks. Tileable; multiply with the carpet colour. */
 export function carpetTexture(): THREE.CanvasTexture {
-  const texture = make('carpet', 128, 128, (ctx, w) => {
-    ctx.fillStyle = 'rgb(214,214,214)';
+  const texture = make('carpet', 256, 256, (ctx, w) => {
+    ctx.fillStyle = 'rgb(206,206,206)';
     ctx.fillRect(0, 0, w, w);
+    let seed = 7;
+    const rand = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
     // Fibre noise.
     const image = ctx.getImageData(0, 0, w, w);
-    let seed = 7;
     for (let i = 0; i < image.data.length; i += 4) {
-      seed = (seed * 16807) % 2147483647;
-      const n = (seed / 2147483647 - 0.5) * 26;
+      const n = (rand() - 0.5) * 34;
       image.data[i] += n;
       image.data[i + 1] += n;
       image.data[i + 2] += n;
     }
     ctx.putImageData(image, 0, 0);
-    ctx.fillStyle = 'rgba(255,236,190,0.55)';
-    const diamond = (cx: number, cy: number, r: number) => {
-      ctx.beginPath();
-      ctx.moveTo(cx, cy - r);
-      ctx.lineTo(cx + r, cy);
-      ctx.lineTo(cx, cy + r);
-      ctx.lineTo(cx - r, cy);
-      ctx.closePath();
-      ctx.fill();
-    };
-    for (const [x, y] of [
-      [0, 0],
-      [w, 0],
-      [0, w],
-      [w, w],
-      [w / 2, w / 2],
-    ]) {
-      diamond(x, y, 7);
+    // Short light and dark flecks, wrapped at the edges so the tile repeats seamlessly.
+    for (let i = 0; i < 260; i++) {
+      const x = rand() * w;
+      const y = rand() * w;
+      const len = 2 + rand() * 5;
+      const a = rand() * Math.PI;
+      ctx.strokeStyle = rand() < 0.5 ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1.2;
+      for (const [ox, oy] of [
+        [0, 0],
+        [w, 0],
+        [-w, 0],
+        [0, w],
+        [0, -w],
+      ]) {
+        ctx.beginPath();
+        ctx.moveTo(x + ox, y + oy);
+        ctx.lineTo(x + ox + Math.cos(a) * len, y + oy + Math.sin(a) * len);
+        ctx.stroke();
+      }
     }
   });
   texture.wrapS = THREE.RepeatWrapping;
@@ -175,25 +195,72 @@ export function carpetTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-const EXIT_FONT_AR = '700 50px "Readex Pro Variable", "Segoe UI", sans-serif';
-const EXIT_FONT_EN = '600 44px "Readex Pro Variable", "Segoe UI", sans-serif';
+/** Perforated metal speaker grille: a fine hexagonal dot grid. Tileable; multiply with a colour. */
+export function grilleTexture(): THREE.CanvasTexture {
+  const texture = make('grille', 64, 64, (ctx, w) => {
+    ctx.fillStyle = 'rgb(150,150,150)';
+    ctx.fillRect(0, 0, w, w);
+    ctx.fillStyle = 'rgb(20,20,20)';
+    const step = w / 8;
+    for (let row = 0; row < 9; row++) {
+      for (let col = 0; col < 9; col++) {
+        const x = col * step + (row % 2 ? step / 2 : 0);
+        const y = row * step * 0.866 * (8 / 6.93);
+        ctx.beginPath();
+        ctx.arc(x % w, y % w, step * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  });
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
 
-/** Illuminated green exit sign, bilingual. */
+const EXIT_FONT_AR = '700 44px "IBM Plex Sans Arabic", "Segoe UI", sans-serif';
+const EXIT_FONT_EN = '700 34px "IBM Plex Sans Arabic", "Segoe UI", sans-serif';
+
+/** Illuminated green exit sign: the ISO 7010 running figure leaving through a door, and the word in both languages. */
 export function exitSignTexture(): THREE.CanvasTexture {
   const draw: Draw = (ctx, w, h) => {
-    ctx.fillStyle = '#06371f';
+    ctx.fillStyle = '#078a47';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'rgba(160,255,200,0.55)';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(6, 6, w - 12, h - 12);
-    ctx.fillStyle = '#d9ffe9';
+    ctx.strokeStyle = 'rgba(220,255,235,0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(4, 4, w - 8, h - 8);
+    // Door.
+    const unit = h / 96;
+    ctx.fillStyle = '#ecfff4';
+    ctx.fillRect(14 * unit, 14 * unit, 30 * unit, 68 * unit);
+    ctx.fillStyle = '#078a47';
+    ctx.fillRect(20 * unit, 20 * unit, 18 * unit, 62 * unit);
+    // Running figure, heading out through the door.
+    ctx.strokeStyle = '#ecfff4';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7 * unit;
+    ctx.beginPath();
+    ctx.arc(66 * unit, 22 * unit, 6.5 * unit, 0, Math.PI * 2);
+    ctx.fillStyle = '#ecfff4';
+    ctx.fill();
+    const line = (points: number[][]) => {
+      ctx.beginPath();
+      points.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x * unit, y * unit) : ctx.lineTo(x * unit, y * unit)));
+      ctx.stroke();
+    };
+    line([[62, 34], [55, 56]]); // body
+    line([[48, 40], [61, 35], [70, 44], [78, 42]]); // arms
+    line([[55, 56], [66, 66], [62, 80]]); // front leg
+    line([[55, 56], [48, 70], [38, 72]]); // back leg
+    ctx.fillStyle = '#ecfff4';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
-    ctx.font = EXIT_FONT_EN;
-    ctx.fillText('EXIT', w * 0.3, h / 2 + 2);
     ctx.font = EXIT_FONT_AR;
     ctx.direction = 'rtl';
-    ctx.fillText('مخرج', w * 0.72, h / 2 - 2);
+    ctx.fillText('مخرج', w * 0.68, h * 0.34);
+    ctx.font = EXIT_FONT_EN;
+    ctx.direction = 'ltr';
+    ctx.fillText('EXIT', w * 0.68, h * 0.72);
   };
   const created = !cache.has('exit');
   const texture = make('exit', 256, 96, draw);

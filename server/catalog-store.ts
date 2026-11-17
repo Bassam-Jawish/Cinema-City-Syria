@@ -85,6 +85,8 @@ export function loadCatalog(db: DatabaseSync): CatalogRuntime {
   const activeMovies: Movie[] = [];
   for (const row of movieRows) {
     const movie = JSON.parse(row.data) as Movie;
+    // Rows of films retired before trailers existed have no trailer field.
+    movie.trailer ??= null;
     movies.set(movie.id, movie);
     if (row.active) activeMovies.push(movie);
   }

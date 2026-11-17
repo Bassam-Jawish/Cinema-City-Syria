@@ -35,6 +35,14 @@ export const seats: typeof en = {
     map: 'مخطط المقاعد',
     showMap: 'إظهار مخطط المقاعد',
     hideMap: 'إخفاء مخطط المقاعد',
+    soundOn: 'صوت الإعلان: مُفعَّل',
+    soundOff: 'صوت الإعلان: مكتوم',
+  },
+  trailer: {
+    frameTitle: 'الإعلان الترويجي: {title}',
+    soundPrompt: 'انقر لتسمع صوت الإعلان',
+    soundPromptTouch: 'المس لتسمع صوت الإعلان',
+    soundPromptSub: 'بدأ متصفحك تشغيله بلا صوت',
   },
   pov: {
     sittingIn: 'أنت تجلس في',

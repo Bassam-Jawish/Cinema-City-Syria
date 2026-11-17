@@ -293,6 +293,20 @@ describe('catalogue', () => {
     }
   });
 
+  it("sends each film's trailer (YouTube id, start, picture shape) to the film and hall pages", async () => {
+    const withTrailer = CATALOG.find((movie) => movie.trailer)!;
+    const film = await call('get', `/api/movies/${withTrailer.id}`);
+    expect(film.body.movie.trailer).toEqual(withTrailer.trailer);
+    expect(film.body.movie.trailer).toMatchObject({ youtubeId: expect.stringMatching(/^[\w-]{11}$/), start: expect.any(Number) });
+
+    const show = showtimesOf(HALL.id).find((row) => row.movie_id === withTrailer.id)!;
+    const hall = await detail(ALICE, show.id);
+    expect(hall.body.movie.trailer).toEqual(withTrailer.trailer);
+
+    const comingSoon = CATALOG.find((movie) => movie.status === 'coming_soon')!;
+    expect((await call('get', `/api/movies/${comingSoon.id}`)).body.movie.trailer).toBeNull();
+  });
+
   it('drops started shows from nextShowtimes and keeps sold-out ones, flagged', async () => {
     const first = showtimesOf(HALL.id)[0];
     const before = (await call('get', '/api/movies')).body.movies as MovieWithShowtimes[];

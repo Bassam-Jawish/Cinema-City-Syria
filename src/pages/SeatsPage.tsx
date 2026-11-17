@@ -2,7 +2,8 @@
  * Seat selection: a full-screen live 3D model of the hall with a HUD on top.
  *
  *   overview → click a free seat (in 3D or on the mini-map) → the seat is held for you and the
- *   camera flies into it → look around from your seat → add more seats or continue to checkout.
+ *   camera flies into it, the lights go down and the film's trailer starts on the screen → look
+ *   around from your seat → add more seats or continue to checkout.
  *
  * Without WebGL (or if the 3D scene fails) the 2D seat map takes over — the booking flow is the same.
  */
@@ -21,6 +22,8 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -47,6 +50,7 @@ import {
   useSelectionTotal,
   type LightsMode,
 } from '@/store/booking';
+import { trailerAudible, useTrailer } from '@/store/trailer';
 import { MAP_COLORS } from '@/three/palette';
 import { isCoarsePointer, isWebGLAvailable } from '@/three/support';
 
@@ -128,6 +132,7 @@ export default function SeatsPage() {
           {use3d && <MiniMap geometry={geometry} />}
           {use3d && <PovCard />}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col items-center gap-3 px-3 pb-3 sm:px-5 sm:pb-5">
+            {use3d && <TrailerSoundPrompt />}
             {use3d && <HintPill />}
             <SeatTray onContinue={goCheckout} />
           </div>
@@ -229,7 +234,26 @@ function HallControls() {
         icon={<MapIcon size={18} />}
         onClick={() => setMapOpen(!mapOpen)}
       />
+      <TrailerSoundButton />
     </div>
+  );
+}
+
+/** Turns the trailer's sound on or off (remembered on this device). Only while there is a trailer to hear. */
+function TrailerSoundButton() {
+  const { t } = useI18n();
+  const status = useTrailer((s) => s.status);
+  const audible = useTrailer(trailerAudible);
+  const setMuted = useTrailer((s) => s.setMuted);
+  if (status === 'none' || status === 'unavailable' || status === 'error') return null;
+  return (
+    <IconButton
+      variant="glass"
+      label={audible ? t('seats.controls.soundOn') : t('seats.controls.soundOff')}
+      active={audible}
+      icon={audible ? <Volume2 size={18} /> : <VolumeX size={18} />}
+      onClick={() => setMuted(audible)}
+    />
   );
 }
 
@@ -414,7 +438,8 @@ function HintPill() {
   const pov = view === 'pov';
   const title = pov ? (coarse ? t('seats.hints.povTouch') : t('seats.hints.pov')) : coarse ? t('seats.hints.overviewTouch') : t('seats.hints.overview');
   const sub = pov ? (coarse ? t('seats.hints.povSubTouch') : t('seats.hints.povSub')) : coarse ? t('seats.hints.overviewSubTouch') : t('seats.hints.overviewSub');
-  const show = visible && !(view === 'overview' && selectedCount > 0);
+  const soundPrompt = useTrailer(showSoundPrompt) && pov;
+  const show = visible && !(view === 'overview' && selectedCount > 0) && !soundPrompt;
 
   return (
     <AnimatePresence>
@@ -435,6 +460,47 @@ function HintPill() {
             <span className="text-[0.7rem] text-sand">{sub}</span>
           </span>
         </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+const showSoundPrompt = (s: { status: string; muted: boolean; soundBlocked: boolean }) =>
+  s.soundBlocked && !s.muted && s.status === 'playing';
+
+/**
+ * The browser started the trailer without sound (it wants a click on the page first): one tap
+ * on this turns the sound on. That tap is the user gesture the browser was waiting for.
+ */
+function TrailerSoundPrompt() {
+  const { t } = useI18n();
+  const view = useBooking((s) => s.view);
+  const show = useTrailer(showSoundPrompt) && view === 'pov';
+  const setMuted = useTrailer((s) => s.setMuted);
+  const [coarse] = useState(() => isCoarsePointer());
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.button
+          key="sound"
+          type="button"
+          onClick={() => setMuted(false)}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          transition={{ duration: 0.3 }}
+          className="glass pointer-events-auto flex items-center gap-3 rounded-full py-2 ps-2.5 pe-5 text-start transition-colors hover:border-marquee/50"
+        >
+          <span className="flex size-8 items-center justify-center rounded-full bg-marquee text-night-950">
+            <Volume2 size={15} aria-hidden="true" />
+          </span>
+          <span className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold text-cream">
+              {coarse ? t('seats.trailer.soundPromptTouch') : t('seats.trailer.soundPrompt')}
+            </span>
+            <span className="text-[0.7rem] text-sand">{t('seats.trailer.soundPromptSub')}</span>
+          </span>
+        </motion.button>
       )}
     </AnimatePresence>
   );

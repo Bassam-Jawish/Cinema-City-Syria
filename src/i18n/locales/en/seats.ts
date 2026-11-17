@@ -34,6 +34,14 @@ export const seats = {
     map: 'Seat map',
     showMap: 'Show the seat map',
     hideMap: 'Hide the seat map',
+    soundOn: 'Trailer sound: on',
+    soundOff: 'Trailer sound: off',
+  },
+  trailer: {
+    frameTitle: 'Trailer: {title}',
+    soundPrompt: 'Click to hear the trailer',
+    soundPromptTouch: 'Tap to hear the trailer',
+    soundPromptSub: 'Your browser started it without sound',
   },
   pov: {
     sittingIn: 'You are sitting in',

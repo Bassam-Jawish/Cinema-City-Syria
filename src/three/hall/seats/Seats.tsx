@@ -1,8 +1,9 @@
 /**
- * The seats, drawn as a handful of instanced meshes (one draw call per part, whatever the hall size):
- *   fabric  — cushion + backrest, coloured per seat by its state (instance colours, eased)
- *   accent  — piping / headrest that marks premium and VIP seats
- *   arms    — armrests and side standards, shared between neighbouring seats
+ * The seats — modern leather stadium seats — drawn as a handful of instanced meshes (one draw
+ * call per part, whatever the hall size):
+ *   fabric  — cushion + high backrest, coloured per seat by its state (instance colours, eased)
+ *   accent  — the sculpted headrest: gold on premium and VIP seats, the seat's own colour otherwise
+ *   arms    — wide armrests with cup holders on solid side panels, shared between neighbours
  *   hit     — invisible, slightly oversized pick volumes so seats are easy to click
  *   people  — dark silhouettes in sold seats, so the hall feels occupied from your seat
  * plus glowing markers on the customer's own seats, a hover highlight with a tooltip, and row letters.
@@ -89,16 +90,16 @@ function buildSeatParts(styleName: SeatStyle, seatWidth: number): SeatParts {
     return geo;
   };
 
-  // Seat cushion.
-  const cushionT = recliner ? 0.2 : 0.11;
-  const cushionD = depth * (recliner ? 0.7 : 0.68);
-  const cushion = keep(new RoundedBoxGeometry(width, cushionT, cushionD, 2, recliner ? 0.06 : 0.035));
+  // Seat cushion: thick and well rounded.
+  const cushionT = recliner ? 0.2 : 0.13;
+  const cushionD = depth * 0.7;
+  const cushion = keep(new RoundedBoxGeometry(width, cushionT, cushionD, 3, recliner ? 0.06 : 0.05));
   cushion.translate(0, s.cushionHeight - cushionT / 2, s.front + cushionD / 2 + 0.01);
 
-  // Backrest, tilted back so its top rear edge sits on the seat's rear line.
-  const tilt = recliner ? 0.2 : 0.13;
-  const backT = recliner ? 0.22 : 0.12;
-  const backH = s.backHeight - s.cushionHeight + (recliner ? 0.02 : 0.04);
+  // High backrest, tilted back so its top rear edge sits on the seat's rear line.
+  const tilt = recliner ? 0.2 : 0.14;
+  const backT = recliner ? 0.22 : 0.15;
+  const backH = s.backHeight - s.cushionHeight + (recliner ? 0.02 : 0.03);
   const pivotY = s.cushionHeight - 0.03;
   const pivotZ = s.back - backH * Math.sin(tilt) - (backT / 2) * Math.cos(tilt);
   const onBackrest = <T extends THREE.BufferGeometry>(geo: T, y: number, z = 0): T => {
@@ -107,7 +108,7 @@ function buildSeatParts(styleName: SeatStyle, seatWidth: number): SeatParts {
     geo.translate(0, pivotY, pivotZ);
     return geo;
   };
-  const back = onBackrest(keep(new RoundedBoxGeometry(width, backH, backT, 2, recliner ? 0.07 : 0.045)), backH / 2);
+  const back = onBackrest(keep(new RoundedBoxGeometry(width, backH, backT, 3, recliner ? 0.07 : 0.06)), backH / 2);
 
   const fabricParts: THREE.BufferGeometry[] = [cushion, back];
   if (recliner) {
@@ -119,27 +120,30 @@ function buildSeatParts(styleName: SeatStyle, seatWidth: number): SeatParts {
   }
   const fabric = merge(fabricParts);
 
-  // Accent: piping along the top of the backrest, or a headrest pillow on recliners.
+  // Accent: a sculpted headrest wrapping the top of the backrest (a pillow on recliners).
   const accent = recliner
     ? onBackrest(new RoundedBoxGeometry(width * 0.7, 0.17, 0.09, 2, 0.045), backH - 0.13, -backT / 2 - 0.035)
-    : onBackrest(new RoundedBoxGeometry(width * 0.94, 0.065, backT + 0.014, 1, 0.025), backH - 0.035);
+    : onBackrest(new RoundedBoxGeometry(width + 0.008, 0.12, backT + 0.014, 3, 0.045), backH - 0.06, -0.004);
 
-  // Armrest pad + side standard. One sits between every pair of neighbouring seats.
+  // Armrest: a wide pad with a cup holder at its front end, on a solid side panel.
+  // One sits between every pair of neighbouring seats.
   const armZ = (s.front + s.back) / 2 - (recliner ? 0.04 : 0.06);
-  const pad = keep(
-    new RoundedBoxGeometry(
-      recliner ? 0.14 : 0.06,
-      recliner ? 0.08 : 0.05,
-      depth * (recliner ? 0.82 : 0.72),
-      1,
-      recliner ? 0.03 : 0.02,
-    ),
-  );
-  pad.translate(0, s.armHeight - (recliner ? 0.04 : 0.025), armZ);
-  const standH = s.armHeight - (recliner ? 0.08 : 0.05);
-  const stand = keep(new THREE.BoxGeometry(recliner ? 0.12 : 0.035, standH, depth * (recliner ? 0.8 : 0.6)));
-  stand.translate(0, standH / 2, armZ);
-  const arm = merge([pad, stand]);
+  const padW = recliner ? 0.15 : 0.085;
+  const padH = recliner ? 0.08 : 0.055;
+  const padD = depth * (recliner ? 0.82 : 0.74);
+  const pad = keep(new RoundedBoxGeometry(padW, padH, padD, 2, recliner ? 0.03 : 0.024));
+  pad.translate(0, s.armHeight - padH / 2, armZ);
+  const panelH = s.armHeight - padH + 0.01;
+  const panel = keep(new RoundedBoxGeometry(recliner ? 0.12 : 0.05, panelH, depth * (recliner ? 0.8 : 0.66), 1, 0.012));
+  panel.translate(0, panelH / 2, armZ + 0.02);
+  const cupR = recliner ? 0.055 : 0.046;
+  const cup = keep(new THREE.CylinderGeometry(cupR, cupR * 0.86, 0.075, 20, 1, true));
+  const cupZ = armZ - padD / 2 + cupR - 0.012;
+  cup.translate(0, s.armHeight - 0.03, cupZ);
+  const rim = keep(new THREE.TorusGeometry(cupR, 0.009, 6, 20));
+  rim.rotateX(Math.PI / 2);
+  rim.translate(0, s.armHeight + 0.003, cupZ);
+  const arm = merge([pad, panel, cup, rim]);
 
   // Generous invisible pick volume — makes small seats easy to hit.
   const hitH = s.backHeight + 0.08;
@@ -202,15 +206,14 @@ export function Seats({ geometry: g }: HallPartProps) {
 
   const materials = useMemo(
     () => ({
-      // A little velvet sheen — kept low, or dark (sold) seats wash out to beige under the house lights.
+      // Leather: a soft satin clear coat. Kept subtle, or dark (sold) seats turn grey under the house lights.
       fabric: new THREE.MeshPhysicalMaterial({
-        roughness: 0.82,
-        sheen: 0.22,
-        sheenRoughness: 0.6,
-        sheenColor: new THREE.Color('#ffd9d9'),
+        roughness: 0.62,
+        clearcoat: 0.32,
+        clearcoatRoughness: 0.42,
       }),
-      accent: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.15 }),
-      arm: new THREE.MeshStandardMaterial({ color: PALETTE.seatFrame, roughness: 0.55, metalness: 0.2 }),
+      accent: new THREE.MeshPhysicalMaterial({ roughness: 0.5, metalness: 0.1, clearcoat: 0.4, clearcoatRoughness: 0.35 }),
+      arm: new THREE.MeshStandardMaterial({ color: PALETTE.seatFrame, roughness: 0.42, metalness: 0.35 }),
       // Invisible but still raycast: the mesh stays "visible", only its material is skipped.
       hit: new THREE.MeshBasicMaterial({ visible: false }),
       person: new THREE.MeshStandardMaterial({ color: PALETTE.audience, roughness: 0.92 }),

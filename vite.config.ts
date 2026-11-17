@@ -26,6 +26,7 @@ export default defineConfig({
       'three/addons/geometries/RoundedBoxGeometry.js',
       'three/addons/utils/BufferGeometryUtils.js',
       'three/addons/lights/RectAreaLightUniformsLib.js',
+      'three/addons/renderers/CSS3DRenderer.js',
       '@react-three/fiber',
       '@react-three/drei',
       'motion/react',

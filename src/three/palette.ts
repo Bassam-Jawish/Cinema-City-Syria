@@ -11,27 +11,35 @@ export const PALETTE = {
   /** Clear colour and fog: what you see beyond the hall. */
   void: '#050304',
 
-  // ── room: crimson fabric walls and a black ceiling, like the cinema's auditorium ──
-  carpet: '#3a2224',
-  carpetDark: '#221416',
-  riser: '#16080a',
-  wall: '#1d0d10',
-  wallPanel: '#6a1119',
-  wallPanelAlt: '#5a0e15',
-  wallTrim: '#1a1112',
-  ceiling: '#050404',
-  stage: '#0a0606',
-  curtain: '#6d0f1c',
-  curtainDeep: '#3d0810',
-  screenFrame: '#030202',
-  screenIdle: '#141112',
+  // ── room: a modern black-box auditorium in the brand's near-black, charcoal and crimson ──
+  carpet: '#2d2f35',
+  carpetDark: '#1d1e22',
+  /** Lower walls, and the black-box front of the hall near the screen. */
+  wall: '#121113',
+  /** Graphite acoustic fabric panels (two barely different dye lots). */
+  wallPanel: '#323136',
+  wallPanelAlt: '#2c2b30',
+  ceiling: '#060606',
+  stage: '#0b0b0c',
+  /** The wall the screen hangs on: black, so it reflects nothing back onto the picture. */
+  screenWall: '#070707',
+  screenFrame: '#030303',
+  /** Black velour masking around the picture. */
+  masking: '#070707',
+  speaker: '#0d0d0f',
+  speakerGrille: '#2a2a2e',
+  door: '#0e0e10',
+  doorFrame: '#2a2a2e',
 
   // ── light ──
-  /** Warm tungsten of the house lights and wall sconces. */
-  warmLight: '#ffcf8a',
-  sconce: '#ffb86b',
+  /** Warm white of the house lights and ceiling slots (about 3000 K). */
+  warmLight: '#ffdcae',
+  /** Cove light grazing the wall panels. */
+  coveLight: '#ffe3c4',
+  /** The brand's crimson, as an LED line along the walls and the plinth. */
+  brandLine: '#ff2d3d',
   /** LED strips on the aisle steps. */
-  aisleLed: '#ffb347',
+  aisleLed: '#ffb760',
   exitSign: '#39d98a',
   projector: '#cfe0ff',
 
